@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Warehouse Management System</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+        
+        const warehouses = [
+            { id: 1, name: 'Agogo', type: 'sub', location: 'Ghana' },
+            { id: 2, name: 'Techiman', type: 'sub', location: 'Ghana' },
+            { id: 3, name: 'Ashanti', type: 'sub', location: 'Ghana' },
+            { id: 4, name: 'Volta', type: 'sub', location: 'Ghana' },
+            { id: 5, name: 'Accra', type: 'central', location: 'Ghana' },
+            { id: 6, name: 'Bolga', type: 'sub', location: 'Ghana' },
+            { id: 7, name: 'Tamale', type: 'sub', location: 'Ghana' },
+            { id: 8, name: 'Enchi', type: 'sub', location: 'Ghana' },
+            { id: 9, name: 'Inventory Management', type: 'central', location: 'Ghana' },
+            { id: 10, name: 'New Abirem and Koforidua', type: 'sub', location: 'Ghana' },
+            { id: 11, name: 'Damongo', type: 'sub', location: 'Ghana' },
+            { id: 12, name: 'CSIR-IIR East Legon', type: 'sub', location: 'Ghana' },
+            { id: 13, name: 'Wa', type: 'sub', location: 'Ghana' },
+            { id: 14, name: 'Goaso', type: 'sub', location: 'Ghana' },
+            { id: 15, name: 'Ashanti1', type: 'sub', location: 'Ghana' },
+            { id: 16, name: 'Sunyani', type: 'sub', location: 'Ghana' },
+            { id: 17, name: 'Hohoe', type: 'sub', location: 'Ghana' },
+            { id: 18, name: 'Assin Fosu', type: 'sub', location: 'Ghana' }
+        ];
+
+        const products = [
+            { id: 1, name: '1L Bottle', sku: '1L' },
+            { id: 2, name: '5L Bottle', sku: '5L' }
+        ];
+        
+        const App = () => {
+            const [currentUser, setCurrentUser] = useState(null);
+            const [loginUsername, setLoginUsername] = useState('');
+            const [loginPassword, setLoginPassword] = useState('');
+            const [loginError, setLoginError] = useState('');
+            const [showPassword, setShowPassword] = useState(false);
+            const [activeTab, setActiveTab] = useState('dashboard');
+            const [stock, setStock] = useState({});
+            const [movements, setMovements] = useState([]);
+            const [expenses, setExpenses] = useState([]);
+            
+            useEffect(() => {
+                if (currentUser) {
+                    fetch('/api/stock').then(r => r.json()).then(setStock);
+                    fetch('/api/movements').then(r => r.json()).then(setMovements);
+                    fetch('/api/expenses').then(r => r.json()).then(setExpenses);
+                }
+            }, [currentUser]);
+            
+            const handleLogin = async () => {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: loginUsername, password: loginPassword })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    setCurrentUser(data.user);
+                    setLoginError('');
+                } else {
+                    setLoginError('Invalid credentials');
+                }
+            };
+            
+            const handleLogout = async () => {
+                await fetch('/api/logout', { method: 'POST' });
+                setCurrentUser(null);
+            };
+            
+            const getStock = (whId, prodId) => stock[whId + '-' + prodId] || 0;
+            
+            const calculateTotals = () => {
+                const totals = {};
+                products.forEach(prod => {
+                    totals[prod.id] = warehouses.reduce((sum, wh) => {
+                        return sum + getStock(wh.id, prod.id);
+                    }, 0);
+                });
+                return totals;
+            };
+            
+            const productTotals = calculateTotals();
+            
+            if (!currentUser) {
+                return (
+                    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+                        <div className="bg-white rounded-lg shadow-xl p-8 w-full max-w-md">
+                            <div className="flex items-center justify-center mb-6">
+                                <svg className="w-12 h-12 text-indigo-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                                </svg>
+                                <h1 className="text-3xl font-bold text-gray-800">Warehouse System</h1>
+                            </div>
+                            
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                                    <input
+                                        type="text"
+                                        value={loginUsername}
+                                        onChange={(e) => setLoginUsername(e.target.value)}
+                                        onKeyPress={(e) => e.key === 'Enter' && handleLogin()}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    />
+                                </div>
+                                
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                                    <div className="relative">
+                                        <input
+                                            type={showPassword ? "text" : "password"}
+                                            value={loginPassword}
+                                            onChange={(e) => setLoginPassword(e.target.value)}
+                                            onKeyPress={(e) => e.key === 'Enter' && handleLogin()}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPassword(!showPassword)}
+                                            className="absolute right-3 top-2.5 text-gray-500 hover:text-gray-700"
+                                        >
+                                            {showPassword ? '👁️' : '👁️‍🗨️'}
+                                        </button>
+                                    </div>
+                                </div>
+                                
+                                {loginError && <div className="text-red-600 text-sm">{loginError}</div>}
+                                
+                                <button
+                                    onClick={handleLogin}
+                                    className="w-full bg-indigo-600 text-white py-2 rounded-md hover:bg-indigo-700 transition-colors"
+                                >
+                                    Login
+                                </button>
+                            </div>
+                            
+                            <div className="mt-6 p-4 bg-gray-50 rounded-md text-sm text-gray-600">
+                                <p className="font-semibold mb-2">Demo Credentials:</p>
+                                <p>Admin: admin / admin123</p>
+                                <p>Warehouse: wh1 / pass123</p>
+                                <p>Finance: finance / pass123</p>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+            
+            return (
+                <div className="min-h-screen bg-gray-50">
+                    <header className="bg-indigo-600 text-white shadow-lg">
+                        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+                            <div>
+                                <h1 className="text-2xl font-bold">Warehouse Management System</h1>
+                                <p className="text-indigo-200 text-sm">Logged in as: {currentUser.name}</p>
+                            </div>
+                            <button
+                                onClick={handleLogout}
+                                className="bg-indigo-700 px-4 py-2 rounded-md hover:bg-indigo-800 transition-colors"
+                            >
+                                Logout
+                            </button>
+                        </div>
+                    </header>
+
+                    <nav className="bg-white shadow-sm border-b">
+                        <div className="max-w-7xl mx-auto px-4">
+                            <div className="flex space-x-8">
+                                {['dashboard', 'stock', 'transactions', 'expenses'].map(tab => (
+                                    <button
+                                        key={tab}
+                                        onClick={() => setActiveTab(tab)}
+                                        className={'px-4 py-4 border-b-2 transition-colors ' + (activeTab === tab ? 'border-indigo-600 text-indigo-600 font-semibold' : 'border-transparent text-gray-600 hover:text-gray-900')}
+                                    >
+                                        {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </nav>
+
+                    <main className="max-w-7xl mx-auto px-4 py-6">
+                        {activeTab === 'dashboard' && (
+                            <div className="space-y-6">
+                                <div>
+                                    <h2 className="text-2xl font-bold text-gray-800 mb-1">Welcome, {currentUser.name.split(' ')[0]}!</h2>
+                                    <p className="text-gray-600">Here is what is happening in your business.</p>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                    <div className="bg-white rounded-lg shadow p-6">
+                                        <h3 className="text-sm font-medium text-gray-600 mb-2">Total 1L Stock</h3>
+                                        <p className="text-3xl font-bold text-indigo-600">{productTotals[1].toLocaleString()}</p>
+                                        <p className="text-xs text-gray-500 mt-1">Across all warehouses</p>
+                                    </div>
+
+                                    <div className="bg-white rounded-lg shadow p-6">
+                                        <h3 className="text-sm font-medium text-gray-600 mb-2">Total 5L Stock</h3>
+                                        <p className="text-3xl font-bold text-green-600">{productTotals[2].toLocaleString()}</p>
+                                        <p className="text-xs text-gray-500 mt-1">Across all warehouses</p>
+                                    </div>
+
+                                    <div className="bg-white rounded-lg shadow p-6">
+                                        <h3 className="text-sm font-medium text-gray-600 mb-2">Warehouses</h3>
+                                        <p className="text-3xl font-bold text-purple-600">{warehouses.length}</p>
+                                        <p className="text-xs text-gray-500 mt-1">Active locations</p>
+                                    </div>
+
+                                    <div className="bg-white rounded-lg shadow p-6">
+                                        <h3 className="text-sm font-medium text-gray-600 mb-2">Total Expenses</h3>
+                                        <p className="text-3xl font-bold text-blue-600">{expenses.length}</p>
+                                        <p className="text-xs text-gray-500 mt-1">All time</p>
+                                    </div>
+                                </div>
+
+                                <div className="bg-white rounded-lg shadow p-6">
+                                    <h3 className="text-lg font-bold text-gray-800 mb-4">Recent Activity</h3>
+                                    {movements.length === 0 ? (
+                                        <p className="text-center py-8 text-gray-500">No recent activity</p>
+                                    ) : (
+                                        <div className="space-y-3">
+                                            {movements.slice(0, 5).map(movement => (
+                                                <div key={movement.id} className="flex items-center justify-between py-2 border-b">
+                                                    <div className="flex-1">
+                                                        <span className={'inline-flex px-2 py-1 text-xs font-semibold rounded-full mr-2 ' + (movement.type === 'create' ? 'bg-green-100 text-green-800' : movement.type === 'remove' ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800')}>
+                                                            {movement.type.toUpperCase()}
+                                                        </span>
+                                                        <span className="text-sm text-gray-800">{movement.quantity} units</span>
+                                                    </div>
+                                                    <span className="text-xs text-gray-500">{new Date(movement.timestamp).toLocaleTimeString()}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'stock' && (
+                            <div className="bg-white rounded-lg shadow p-6">
+                                <h2 className="text-xl font-bold text-gray-800 mb-6">Current Stock Levels</h2>
+                                
+                                <div className="overflow-x-auto">
+                                    <table className="w-full">
+                                        <thead>
+                                            <tr className="bg-gray-50 border-b-2">
+                                                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Warehouse</th>
+                                                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Location</th>
+                                                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Type</th>
+                                                <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700">1L Bottles</th>
+                                                <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700">5L Bottles</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {warehouses.map(warehouse => (
+                                                <tr key={warehouse.id} className="border-b hover:bg-gray-50">
+                                                    <td className="px-4 py-3 text-sm font-medium text-gray-900">{warehouse.name}</td>
+                                                    <td className="px-4 py-3 text-sm text-gray-600">{warehouse.location}</td>
+                                                    <td className="px-4 py-3">
+                                                        <span className={'inline-flex px-2 py-1 text-xs font-semibold rounded-full ' + (warehouse.type === 'central' ? 'bg-purple-100 text-purple-800' : 'bg-green-100 text-green-800')}>
+                                                            {warehouse.type}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-4 py-3 text-right text-sm font-semibold text-gray-800">{getStock(warehouse.id, 1)}</td>
+                                                    <td className="px-4 py-3 text-right text-sm font-semibold text-gray-800">{getStock(warehouse.id, 2)}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'transactions' && (
+                            <div className="bg-white rounded-lg shadow p-6">
+                                <h2 className="text-xl font-bold text-gray-800 mb-4">Record Transaction</h2>
+                                <p className="text-gray-600">Transaction recording interface will appear here.</p>
+                            </div>
+                        )}
+
+                        {activeTab === 'expenses' && (
+                            <div className="bg-white rounded-lg shadow p-6">
+                                <h2 className="text-xl font-bold text-gray-800 mb-4">Expenses</h2>
+                                <div className="grid grid-cols-4 gap-4 mb-6">
+                                    <div className="bg-yellow-50 p-4 rounded-lg">
+                                        <p className="text-sm text-gray-600">Submitted</p>
+                                        <p className="text-2xl font-bold text-yellow-600">{expenses.filter(e => e.status === 'submitted').length}</p>
+                                    </div>
+                                    <div className="bg-blue-50 p-4 rounded-lg">
+                                        <p className="text-sm text-gray-600">Approved</p>
+                                        <p className="text-2xl font-bold text-blue-600">{expenses.filter(e => e.status === 'approved').length}</p>
+                                    </div>
+                                    <div className="bg-green-50 p-4 rounded-lg">
+                                        <p className="text-sm text-gray-600">Paid</p>
+                                        <p className="text-2xl font-bold text-green-600">{expenses.filter(e => e.status === 'paid').length}</p>
+                                    </div>
+                                    <div className="bg-gray-50 p-4 rounded-lg">
+                                        <p className="text-sm text-gray-600">Total</p>
+                                        <p className="text-2xl font-bold text-gray-900">{expenses.length}</p>
+                                    </div>
+                                </div>
+                                {expenses.length === 0 && <p className="text-center py-8 text-gray-500">No expenses yet</p>}
+                            </div>
+                        )}
+                    </main>
+                </div>
+            );
+        };
+        
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
