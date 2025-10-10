@@ -40,6 +40,8 @@
             { id: 1, name: '1L Bottle', sku: '1L' },
             { id: 2, name: '5L Bottle', sku: '5L' }
         ];
+
+        const expenseCategories = ['Accommodation', 'Transport', 'Meals', 'Office Supplies', 'Equipment', 'Utilities', 'Marketing', 'Other'];
         
         const App = () => {
             const [currentUser, setCurrentUser] = useState(null);
@@ -52,13 +54,39 @@
             const [movements, setMovements] = useState([]);
             const [expenses, setExpenses] = useState([]);
             
+            // Transaction states
+            const [txType, setTxType] = useState('create');
+            const [txWarehouse, setTxWarehouse] = useState('');
+            const [txProduct, setTxProduct] = useState('');
+            const [txQuantity, setTxQuantity] = useState('');
+            const [txFromWarehouse, setTxFromWarehouse] = useState('');
+            const [txToWarehouse, setTxToWarehouse] = useState('');
+            const [txNotes, setTxNotes] = useState('');
+            
+            // Expense states
+            const [expenseTitle, setExpenseTitle] = useState('');
+            const [expenseDescription, setExpenseDescription] = useState('');
+            const [expenseAmount, setExpenseAmount] = useState('');
+            const [expenseCategory, setExpenseCategory] = useState('');
+            const [expenseDate, setExpenseDate] = useState('');
+            const [selectedExpense, setSelectedExpense] = useState(null);
+            const [paymentMethod, setPaymentMethod] = useState('');
+            const [paymentReference, setPaymentReference] = useState('');
+            
             useEffect(() => {
                 if (currentUser) {
-                    fetch('/api/stock').then(r => r.json()).then(setStock);
-                    fetch('/api/movements').then(r => r.json()).then(setMovements);
-                    fetch('/api/expenses').then(r => r.json()).then(setExpenses);
+                    fetchData();
                 }
             }, [currentUser]);
+            
+            const fetchData = async () => {
+                const stockData = await fetch('/api/stock').then(r => r.json());
+                const movementsData = await fetch('/api/movements').then(r => r.json());
+                const expensesData = await fetch('/api/expenses').then(r => r.json());
+                setStock(stockData);
+                setMovements(movementsData);
+                setExpenses(expensesData);
+            };
             
             const handleLogin = async () => {
                 const response = await fetch('/api/login', {
@@ -91,6 +119,197 @@
                     }, 0);
                 });
                 return totals;
+            };
+            
+            const handleTransaction = async () => {
+                if (!txQuantity || parseInt(txQuantity) <= 0) {
+                    alert('Please enter a valid quantity');
+                    return;
+                }
+                
+                const qty = parseInt(txQuantity);
+                let updateData = { quantity: qty };
+                
+                if (txType === 'create') {
+                    if (!txWarehouse || !txProduct) {
+                        alert('Please select warehouse and product');
+                        return;
+                    }
+                    const whId = parseInt(txWarehouse);
+                    const prodId = parseInt(txProduct);
+                    const wh = warehouses.find(w => w.id === whId);
+                    const prod = products.find(p => p.id === prodId);
+                    
+                    await fetch('/api/stock/update', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ warehouseId: whId, productId: prodId, quantity: qty })
+                    });
+                    
+                    await fetch('/api/movements', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            type: 'create',
+                            warehouseName: wh.name,
+                            productName: prod.name,
+                            quantity: qty,
+                            notes: txNotes,
+                            user: currentUser.name
+                        })
+                    });
+                    
+                } else if (txType === 'remove') {
+                    if (!txWarehouse || !txProduct) {
+                        alert('Please select warehouse and product');
+                        return;
+                    }
+                    const whId = parseInt(txWarehouse);
+                    const prodId = parseInt(txProduct);
+                    
+                    if (getStock(whId, prodId) < qty) {
+                        alert('Insufficient stock!');
+                        return;
+                    }
+                    
+                    const wh = warehouses.find(w => w.id === whId);
+                    const prod = products.find(p => p.id === prodId);
+                    
+                    await fetch('/api/stock/update', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ warehouseId: whId, productId: prodId, quantity: -qty })
+                    });
+                    
+                    await fetch('/api/movements', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            type: 'remove',
+                            warehouseName: wh.name,
+                            productName: prod.name,
+                            quantity: qty,
+                            notes: txNotes,
+                            user: currentUser.name
+                        })
+                    });
+                    
+                } else if (txType === 'transfer') {
+                    if (!txFromWarehouse || !txToWarehouse || !txProduct) {
+                        alert('Please select warehouses and product');
+                        return;
+                    }
+                    const fromId = parseInt(txFromWarehouse);
+                    const toId = parseInt(txToWarehouse);
+                    const prodId = parseInt(txProduct);
+                    
+                    if (getStock(fromId, prodId) < qty) {
+                        alert('Insufficient stock in source warehouse!');
+                        return;
+                    }
+                    
+                    const fromWh = warehouses.find(w => w.id === fromId);
+                    const toWh = warehouses.find(w => w.id === toId);
+                    const prod = products.find(p => p.id === prodId);
+                    
+                    await fetch('/api/stock/update', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ warehouseId: fromId, productId: prodId, quantity: -qty })
+                    });
+                    
+                    await fetch('/api/stock/update', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ warehouseId: toId, productId: prodId, quantity: qty })
+                    });
+                    
+                    await fetch('/api/movements', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            type: 'transfer',
+                            fromWarehouseName: fromWh.name,
+                            toWarehouseName: toWh.name,
+                            productName: prod.name,
+                            quantity: qty,
+                            notes: txNotes,
+                            user: currentUser.name
+                        })
+                    });
+                }
+                
+                await fetchData();
+                setTxQuantity('');
+                setTxNotes('');
+                setTxWarehouse('');
+                setTxProduct('');
+                setTxFromWarehouse('');
+                setTxToWarehouse('');
+                alert('Transaction recorded successfully!');
+            };
+            
+            const submitExpense = async () => {
+                if (!expenseTitle || !expenseAmount || !expenseCategory || !expenseDate) {
+                    alert('Please fill in all required fields');
+                    return;
+                }
+                
+                await fetch('/api/expenses', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        title: expenseTitle,
+                        description: expenseDescription,
+                        amount: parseFloat(expenseAmount),
+                        category: expenseCategory,
+                        dateIncurred: expenseDate,
+                        requestedBy: currentUser.name,
+                        requestedById: currentUser.id
+                    })
+                });
+                
+                await fetchData();
+                setExpenseTitle('');
+                setExpenseDescription('');
+                setExpenseAmount('');
+                setExpenseCategory('');
+                setExpenseDate('');
+                setSelectedExpense(null);
+                alert('Expense submitted successfully!');
+            };
+            
+            const approveExpense = async (expenseId) => {
+                await fetch(`/api/expenses/${expenseId}/approve`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ approvedBy: currentUser.name })
+                });
+                await fetchData();
+                setSelectedExpense(null);
+                alert('Expense approved!');
+            };
+            
+            const markAsPaid = async (expenseId) => {
+                if (!paymentMethod) {
+                    alert('Please enter payment method');
+                    return;
+                }
+                
+                await fetch(`/api/expenses/${expenseId}/pay`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        processedBy: currentUser.name,
+                        paymentMethod,
+                        paymentReference
+                    })
+                });
+                await fetchData();
+                setSelectedExpense(null);
+                setPaymentMethod('');
+                setPaymentReference('');
+                alert('Expense marked as paid!');
             };
             
             const productTotals = calculateTotals();
@@ -179,7 +398,7 @@
                     <nav className="bg-white shadow-sm border-b">
                         <div className="max-w-7xl mx-auto px-4">
                             <div className="flex space-x-8">
-                                {['dashboard', 'stock', 'transactions', 'expenses'].map(tab => (
+                                {['dashboard', 'stock', 'transactions', 'history', 'expenses'].map(tab => (
                                     <button
                                         key={tab}
                                         onClick={() => setActiveTab(tab)}
@@ -238,7 +457,12 @@
                                                         <span className={'inline-flex px-2 py-1 text-xs font-semibold rounded-full mr-2 ' + (movement.type === 'create' ? 'bg-green-100 text-green-800' : movement.type === 'remove' ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800')}>
                                                             {movement.type.toUpperCase()}
                                                         </span>
-                                                        <span className="text-sm text-gray-800">{movement.quantity} units</span>
+                                                        <span className="text-sm text-gray-800">
+                                                            {movement.type === 'transfer' ? 
+                                                                `${movement.quantity} × ${movement.productName} from ${movement.fromWarehouseName} to ${movement.toWarehouseName}` :
+                                                                `${movement.quantity} × ${movement.productName} ${movement.type === 'create' ? 'created at' : 'removed from'} ${movement.warehouseName}`
+                                                            }
+                                                        </span>
                                                     </div>
                                                     <span className="text-xs text-gray-500">{new Date(movement.timestamp).toLocaleTimeString()}</span>
                                                 </div>
@@ -287,40 +511,466 @@
                         {activeTab === 'transactions' && (
                             <div className="bg-white rounded-lg shadow p-6">
                                 <h2 className="text-xl font-bold text-gray-800 mb-4">Record Transaction</h2>
-                                <p className="text-gray-600">Transaction recording interface will appear here.</p>
-                            </div>
-                        )}
+                                
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">Transaction Type</label>
+                                        <div className="grid grid-cols-3 gap-2">
+                                            <button
+                                                onClick={() => setTxType('create')}
+                                                className={'px-4 py-3 rounded-md border-2 transition-colors ' + (txType === 'create' ? 'border-green-500 bg-green-50 text-green-700' : 'border-gray-300 bg-white hover:bg-gray-50')}
+                                            >
+                                                Create Stock
+                                            </button>
+                                            <button
+                                                onClick={() => setTxType('remove')}
+                                                className={'px-4 py-3 rounded-md border-2 transition-colors ' + (txType === 'remove' ? 'border-red-500 bg-red-50 text-red-700' : 'border-gray-300 bg-white hover:bg-gray-50')}
+                                            >
+                                                Remove Stock
+                                            </button>
+                                            <button
+                                                onClick={() => setTxType('transfer')}
+                                                className={'px-4 py-3 rounded-md border-2 transition-colors ' + (txType === 'transfer' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 bg-white hover:bg-gray-50')}
+                                            >
+                                                Transfer
+                                            </button>
+                                        </div>
+                                    </div>
 
-                        {activeTab === 'expenses' && (
-                            <div className="bg-white rounded-lg shadow p-6">
-                                <h2 className="text-xl font-bold text-gray-800 mb-4">Expenses</h2>
-                                <div className="grid grid-cols-4 gap-4 mb-6">
-                                    <div className="bg-yellow-50 p-4 rounded-lg">
-                                        <p className="text-sm text-gray-600">Submitted</p>
-                                        <p className="text-2xl font-bold text-yellow-600">{expenses.filter(e => e.status === 'submitted').length}</p>
+                                    {txType === 'transfer' ? (
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">From Warehouse</label>
+                                                <select
+                                                    value={txFromWarehouse}
+                                                    onChange={(e) => setTxFromWarehouse(e.target.value)}
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                                >
+                                                    <option value="">Select...</option>
+                                                    {warehouses.map(wh => (
+                                                        <option key={wh.id} value={wh.id}>{wh.name}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">To Warehouse</label>
+                                                <select
+                                                    value={txToWarehouse}
+                                                    onChange={(e) => setTxToWarehouse(e.target.value)}
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                                >
+                                                    <option value="">Select...</option>
+                                                    {warehouses.map(wh => (
+                                                        <option key={wh.id} value={wh.id}>{wh.name}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Warehouse</label>
+                                            <select
+                                                value={txWarehouse}
+                                                onChange={(e) => setTxWarehouse(e.target.value)}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                            >
+                                                <option value="">Select warehouse...</option>
+                                                {warehouses.map(wh => (
+                                                    <option key={wh.id} value={wh.id}>{wh.name}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    )}
+
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Product</label>
+<select
+value={txProduct}
+onChange={(e) => setTxProduct(e.target.value)}
+className="w-full px-3 py-2 border border-gray-300 rounded-md"
+>
+<option value="">Select product...</option>
+{products.map(prod => (
+<option key={prod.id} value={prod.id}>{prod.name}</option>
+))}
+</select>
+</div>
+<div>
+<label className="block text-sm font-medium text-gray-700 mb-1">Quantity</label>
+<input
+type="number"
+min="1"
+value={txQuantity}
+onChange={(e) => setTxQuantity(e.target.value)}
+className="w-full px-3 py-2 border border-gray-300 rounded-md"
+/>
+</div>
+</div>
+<div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Notes (Optional)</label>
+                                    <textarea
+                                        value={txNotes}
+                                        onChange={(e) => setTxNotes(e.target.value)}
+                                        rows="2"
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                        placeholder="Add notes..."
+                                    />
+                                </div>
+
+                                <button
+                                    onClick={handleTransaction}
+                                    className={'w-full py-3 rounded-md text-white font-semibold ' + (txType === 'create' ? 'bg-green-600 hover:bg-green-700' : txType === 'remove' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700')}
+                                >
+                                    {txType === 'create' ? 'Create Stock' : txType === 'remove' ? 'Remove Stock' : 'Transfer Stock'}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'history' && (
+                        <div className="bg-white rounded-lg shadow p-6">
+                            <h2 className="text-xl font-bold text-gray-800 mb-4">Movement History</h2>
+                            {movements.length === 0 ? (
+                                <p className="text-center py-12 text-gray-500">No movements recorded yet</p>
+                            ) : (
+                                <div className="space-y-3">
+                                    {movements.map(movement => (
+                                        <div key={movement.id} className="border border-gray-200 rounded-lg p-4">
+                                            <div className="flex items-center mb-2">
+                                                <span className={'inline-flex px-3 py-1 text-xs font-semibold rounded-full ' + (movement.type === 'create' ? 'bg-green-100 text-green-800' : movement.type === 'remove' ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800')}>
+                                                    {movement.type.toUpperCase()}
+                                                </span>
+                                                <span className="ml-3 text-sm text-gray-600">
+                                                    {new Date(movement.timestamp).toLocaleString()}
+                                                </span>
+                                            </div>
+                                            <div className="text-sm text-gray-800">
+                                                {movement.type === 'transfer' ? (
+                                                    <p>
+                                                        <span className="font-semibold">{movement.quantity}</span> × {movement.productName} from{' '}
+                                                        <span className="font-semibold">{movement.fromWarehouseName}</span> to{' '}
+                                                        <span className="font-semibold">{movement.toWarehouseName}</span>
+                                                    </p>
+                                                ) : (
+                                                    <p>
+                                                        <span className="font-semibold">{movement.quantity}</span> × {movement.productName}{' '}
+                                                        {movement.type === 'create' ? 'created at' : 'removed from'}{' '}
+                                                        <span className="font-semibold">{movement.warehouseName}</span>
+                                                    </p>
+                                                )}
+                                            </div>
+                                            {movement.notes && (
+                                                <p className="text-sm text-gray-600 mt-1 italic">{movement.notes}</p>
+                                            )}
+                                            <p className="text-xs text-gray-500 mt-2">By: {movement.user}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {activeTab === 'expenses' && !selectedExpense && (
+                        <div className="space-y-6">
+                            <div className="flex justify-between items-center">
+                                <h2 className="text-xl font-bold text-gray-800">Expenses</h2>
+                                <button
+                                    onClick={() => setSelectedExpense('new')}
+                                    className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700"
+                                >
+                                    + New Expense
+                                </button>
+                            </div>
+
+                            <div className="grid grid-cols-4 gap-4">
+                                <div className="bg-white rounded-lg shadow p-4">
+                                    <h3 className="text-sm text-gray-600 mb-2">Submitted</h3>
+                                    <p className="text-2xl font-bold text-yellow-600">{expenses.filter(e => e.status === 'submitted').length}</p>
+                                </div>
+                                <div className="bg-white rounded-lg shadow p-4">
+                                    <h3 className="text-sm text-gray-600 mb-2">Approved</h3>
+                                    <p className="text-2xl font-bold text-blue-600">{expenses.filter(e => e.status === 'approved').length}</p>
+                                </div>
+                                <div className="bg-white rounded-lg shadow p-4">
+                                    <h3 className="text-sm text-gray-600 mb-2">Paid</h3>
+                                    <p className="text-2xl font-bold text-green-600">{expenses.filter(e => e.status === 'paid').length}</p>
+                                </div>
+                                <div className="bg-white rounded-lg shadow p-4">
+                                    <h3 className="text-sm text-gray-600 mb-2">Total Amount</h3>
+                                    <p className="text-2xl font-bold text-gray-900">GHS {expenses.reduce((sum, e) => sum + e.amount, 0).toFixed(2)}</p>
+                                </div>
+                            </div>
+
+                            <div className="bg-white rounded-lg shadow">
+                                <table className="w-full">
+                                    <thead>
+                                        <tr className="bg-gray-50 border-b">
+                                            <th className="px-4 py-3 text-left text-sm font-semibold">Title</th>
+                                            <th className="px-4 py-3 text-left text-sm font-semibold">Category</th>
+                                            <th className="px-4 py-3 text-left text-sm font-semibold">Amount</th>
+                                            <th className="px-4 py-3 text-left text-sm font-semibold">Requested By</th>
+                                            <th className="px-4 py-3 text-left text-sm font-semibold">Date</th>
+                                            <th className="px-4 py-3 text-left text-sm font-semibold">Status</th>
+                                            <th className="px-4 py-3 text-left text-sm font-semibold">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {expenses.length === 0 ? (
+                                            <tr>
+                                                <td colSpan="7" className="px-4 py-8 text-center text-gray-500">No expenses yet</td>
+                                            </tr>
+                                        ) : (
+                                            expenses.map(expense => (
+                                                <tr key={expense.id} className="border-b hover:bg-gray-50">
+                                                    <td className="px-4 py-3 text-sm">{expense.title}</td>
+                                                    <td className="px-4 py-3 text-sm">
+                                                        <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-cyan-100 text-cyan-800">
+                                                            {expense.category}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-4 py-3 text-sm">GHS {expense.amount.toFixed(2)}</td>
+                                                    <td className="px-4 py-3 text-sm">{expense.requestedBy}</td>
+                                                    <td className="px-4 py-3 text-sm">{new Date(expense.dateIncurred).toLocaleDateString()}</td>
+                                                    <td className="px-4 py-3 text-sm">
+                                                        <span className={'inline-flex px-2 py-1 text-xs font-semibold rounded-full ' + (expense.status === 'submitted' ? 'bg-yellow-100 text-yellow-800' : expense.status === 'approved' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800')}>
+                                                            {expense.status.charAt(0).toUpperCase() + expense.status.slice(1)}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-4 py-3 text-sm">
+                                                        <button
+                                                            onClick={() => setSelectedExpense(expense)}
+                                                            className="text-indigo-600 hover:text-indigo-900 font-medium"
+                                                        >
+                                                            View
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'expenses' && selectedExpense === 'new' && (
+                        <div className="bg-white rounded-lg shadow p-6">
+                            <div className="flex justify-between items-center mb-6">
+                                <h2 className="text-xl font-bold text-gray-800">New Expense</h2>
+                                <button
+                                    onClick={() => setSelectedExpense(null)}
+                                    className="text-gray-600 hover:text-gray-900"
+                                >
+                                    ✕ Close
+                                </button>
+                            </div>
+
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+                                    <input
+                                        type="text"
+                                        value={expenseTitle}
+                                        onChange={(e) => setExpenseTitle(e.target.value)}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                        placeholder="e.g., Accommodation"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                                    <textarea
+                                        value={expenseDescription}
+                                        onChange={(e) => setExpenseDescription(e.target.value)}
+                                        rows="3"
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                        placeholder="Details about this expense..."
+                                    />
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Amount (GHS)</label>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            value={expenseAmount}
+                                            onChange={(e) => setExpenseAmount(e.target.value)}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                        />
                                     </div>
-                                    <div className="bg-blue-50 p-4 rounded-lg">
-                                        <p className="text-sm text-gray-600">Approved</p>
-                                        <p className="text-2xl font-bold text-blue-600">{expenses.filter(e => e.status === 'approved').length}</p>
-                                    </div>
-                                    <div className="bg-green-50 p-4 rounded-lg">
-                                        <p className="text-sm text-gray-600">Paid</p>
-                                        <p className="text-2xl font-bold text-green-600">{expenses.filter(e => e.status === 'paid').length}</p>
-                                    </div>
-                                    <div className="bg-gray-50 p-4 rounded-lg">
-                                        <p className="text-sm text-gray-600">Total</p>
-                                        <p className="text-2xl font-bold text-gray-900">{expenses.length}</p>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Date Incurred</label>
+                                        <input
+                                            type="date"
+                                            value={expenseDate}
+                                            onChange={(e) => setExpenseDate(e.target.value)}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                        />
                                     </div>
                                 </div>
-                                {expenses.length === 0 && <p className="text-center py-8 text-gray-500">No expenses yet</p>}
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                                    <select
+                                        value={expenseCategory}
+                                        onChange={(e) => setExpenseCategory(e.target.value)}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                    >
+                                        <option value="">Select category...</option>
+                                        {expenseCategories.map(cat => (
+                                            <option key={cat} value={cat}>{cat}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div className="flex space-x-3">
+                                    <button
+                                        onClick={submitExpense}
+                                        className="flex-1 bg-indigo-600 text-white py-2 rounded-md hover:bg-indigo-700"
+                                    >
+                                        Submit Expense
+                                    </button>
+                                    <button
+                                        onClick={() => setSelectedExpense(null)}
+                                        className="px-6 bg-gray-200 text-gray-700 py-2 rounded-md hover:bg-gray-300"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
                             </div>
-                        )}
-                    </main>
-                </div>
-            );
-        };
-        
-        ReactDOM.render(<App />, document.getElementById('root'));
-    </script>
+                        </div>
+                    )}
+
+                    {activeTab === 'expenses' && selectedExpense && selectedExpense !== 'new' && (
+                        <div className="bg-white rounded-lg shadow p-6">
+                            <div className="flex justify-between items-start mb-6">
+                                <h2 className="text-xl font-bold text-gray-800">Expense Details</h2>
+                                <button
+                                    onClick={() => setSelectedExpense(null)}
+                                    className="text-gray-600 hover:text-gray-900"
+                                >
+                                    ✕ Close
+                                </button>
+                            </div>
+
+                            <div className="space-y-4 mb-6">
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <p className="text-sm font-medium text-gray-600">Title</p>
+                                        <p className="text-gray-900">{selectedExpense.title}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-sm font-medium text-gray-600">Status</p>
+                                        <span className={'inline-flex px-2 py-1 text-xs font-semibold rounded-full ' + (selectedExpense.status === 'submitted' ? 'bg-yellow-100 text-yellow-800' : selectedExpense.status === 'approved' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800')}>
+                                            {selectedExpense.status.charAt(0).toUpperCase() + selectedExpense.status.slice(1)}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <p className="text-sm font-medium text-gray-600">Description</p>
+                                    <p className="text-gray-900">{selectedExpense.description || 'No description'}</p>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <p className="text-sm font-medium text-gray-600">Amount</p>
+                                        <p className="text-gray-900">GHS {selectedExpense.amount.toFixed(2)}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-sm font-medium text-gray-600">Date Incurred</p>
+                                        <p className="text-gray-900">{new Date(selectedExpense.dateIncurred).toLocaleDateString()}</p>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <p className="text-sm font-medium text-gray-600">Category</p>
+                                    <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-cyan-100 text-cyan-800">
+                                        {selectedExpense.category}
+                                    </span>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <p className="text-sm font-medium text-gray-600">Requested By</p>
+                                        <p className="text-gray-900">{selectedExpense.requestedBy}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-sm font-medium text-gray-600">Submission Date</p>
+                                        <p className="text-gray-900">{new Date(selectedExpense.submissionDate).toLocaleDateString()}</p>
+                                    </div>
+                                </div>
+
+                                {selectedExpense.approvedBy && (
+                                    <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+                                        <p className="font-semibold text-blue-900 mb-2">Approval Information</p>
+                                        <p className="text-sm text-blue-800">Approved by: {selectedExpense.approvedBy}</p>
+                                        <p className="text-sm text-blue-800">Date: {new Date(selectedExpense.approvalDate).toLocaleDateString()}</p>
+                                    </div>
+                                )}
+
+                                {selectedExpense.processedBy && (
+                                    <div className="mt-4 p-4 bg-green-50 rounded-lg">
+                                        <p className="font-semibold text-green-900 mb-2">Payment Information</p>
+                                        <p className="text-sm text-green-800">Processed by: {selectedExpense.processedBy}</p>
+                                        <p className="text-sm text-green-800">Date: {new Date(selectedExpense.paymentDate).toLocaleDateString()}</p>
+                                        <p className="text-sm text-green-800">Method: {selectedExpense.paymentMethod}</p>
+                                        {selectedExpense.paymentReference && (
+                                            <p className="text-sm text-green-800">Reference: {selectedExpense.paymentReference}</p>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+
+                            {currentUser.financeAdmin && selectedExpense.status === 'submitted' && (
+                                <div className="mt-6 pt-6 border-t">
+                                    <button
+                                        onClick={() => approveExpense(selectedExpense.id)}
+                                        className="w-full bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700"
+                                    >
+                                        ✓ Approve Expense
+                                    </button>
+                                </div>
+                            )}
+
+                            {currentUser.financeAdmin && selectedExpense.status === 'approved' && (
+                                <div className="mt-6 pt-6 border-t">
+                                    <h3 className="text-sm font-medium text-gray-700 mb-3">Mark as Paid</h3>
+                                    <div className="space-y-3">
+                                        <input
+                                            type="text"
+                                            placeholder="Payment method (e.g., Bank transfer)"
+                                            value={paymentMethod}
+                                            onChange={(e) => setPaymentMethod(e.target.value)}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                        />
+                                        <input
+                                            type="text"
+                                            placeholder="Reference number (optional)"
+                                            value={paymentReference}
+                                            onChange={(e) => setPaymentReference(e.target.value)}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                        />
+                                        <button
+                                            onClick={() => markAsPaid(selectedExpense.id)}
+                                            className="w-full bg-green-600 text-white py-2 rounded-md hover:bg-green-700"
+                                        >
+                                            ✓ Mark as Paid
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </main>
+            </div>
+        );
+    };
+    
+    ReactDOM.render(<App />, document.getElementById('root'));
+</script>
 </body>
 </html>
