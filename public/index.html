@@ -624,7 +624,7 @@ const submitExpense = async () => {
                     <nav className="bg-white shadow-sm border-b">
                         <div className="max-w-7xl mx-auto px-4">
                             <div className="flex space-x-8">
-                              {['dashboard', 'stock', 'transactions', 'history', 'expenses', 'invoices'].map(tab => (
+                                {['dashboard', 'stock', 'transactions', 'history', 'expenses', 'invoices', ...(currentUser.role === 'admin' ? ['users'] : [])].map(tab => (
                                     <button
                                         key={tab}
                                         onClick={() => setActiveTab(tab)}
