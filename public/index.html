@@ -965,7 +965,16 @@ className="w-full px-3 py-2 border border-gray-300 rounded-md"
                                         {selectedExpense.category}
                                     </span>
                                 </div>
-
+                                {selectedExpense.files && selectedExpense.files.length > 0 && (
+                                     <div>
+                                        <p className="text-sm font-medium text-gray-600 mb-2">Attached Files ({selectedExpense.files.length})</p>
+                                        <ul className="text-sm text-gray-700 list-disc list-inside">
+                                             {selectedExpense.files.map((file, idx) => (
+                                                 <li key={idx}>{file}</li>
+                                              ))}
+                                         </ul>
+                                     </div>
+                                )}
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
                                         <p className="text-sm font-medium text-gray-600">Requested By</p>
