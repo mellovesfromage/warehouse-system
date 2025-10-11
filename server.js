@@ -142,7 +142,100 @@ app.post('/api/expenses/:id/pay', (req, res) => {
     res.status(404).json({ success: false, message: 'Expense not found' });
   }
 });
+let invoices = [];
+let customers = [
+  { id: 1, name: 'Asaph Agrochemical', phone: '0280414243', email: '', address: 'Kasapin, Ahafo' },
+  { id: 2, name: 'Sample Customer', phone: '0241234567', email: 'customer@example.com', address: 'Accra' }
+];
 
+// Invoices API
+app.get('/api/invoices', (req, res) => {
+  res.json(invoices);
+});
+
+app.post('/api/invoices', (req, res) => {
+  const invoice = {
+    id: Date.now(),
+    invoiceNumber: 'INV-' + Date.now(),
+    ...req.body,
+    issueDate: new Date().toISOString(),
+    status: 'unpaid',
+    payments: [],
+    attachments: []
+  };
+  
+  // Deduct stock from warehouse
+  if (req.body.items && req.body.warehouseId) {
+    req.body.items.forEach(item => {
+      const key = `${req.body.warehouseId}-${item.productId}`;
+      stock[key] = (stock[key] || 0) - item.quantity;
+    });
+    
+    // Record movement
+    req.body.items.forEach(item => {
+      movements.unshift({
+        id: Date.now() + Math.random(),
+        type: 'sale',
+        timestamp: new Date().toISOString(),
+        warehouseId: req.body.warehouseId,
+        warehouseName: req.body.warehouseName,
+        productId: item.productId,
+        productName: item.productName,
+        quantity: item.quantity,
+        invoiceNumber: invoice.invoiceNumber,
+        customer: req.body.customerName,
+        user: req.body.createdBy
+      });
+    });
+  }
+  
+  invoices.unshift(invoice);
+  res.json({ success: true, invoice });
+});
+
+app.post('/api/invoices/:id/payment', (req, res) => {
+  const invoiceId = parseInt(req.params.id);
+  const invoice = invoices.find(i => i.id === invoiceId);
+  
+  if (invoice) {
+    const payment = {
+      id: Date.now(),
+      amount: parseFloat(req.body.amount),
+      method: req.body.method,
+      date: new Date().toISOString(),
+      recordedBy: req.body.recordedBy
+    };
+    
+    if (!invoice.payments) invoice.payments = [];
+    invoice.payments.push(payment);
+    
+    const totalPaid = invoice.payments.reduce((sum, p) => sum + p.amount, 0);
+    const balanceDue = invoice.total - totalPaid;
+    
+    if (balanceDue <= 0) {
+      invoice.status = 'paid';
+    } else {
+      invoice.status = 'partial';
+    }
+    
+    res.json({ success: true, invoice });
+  } else {
+    res.status(404).json({ success: false, message: 'Invoice not found' });
+  }
+});
+
+app.get('/api/customers', (req, res) => {
+  res.json(customers);
+});
+
+app.post('/api/customers', (req, res) => {
+  const customer = {
+    id: Date.now(),
+    ...req.body
+  };
+  customers.unshift(customer);
+  res.json({ success: true, customer });
+});
 // Serve frontend
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
