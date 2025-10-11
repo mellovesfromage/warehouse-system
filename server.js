@@ -6,7 +6,34 @@ require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const sgMail = require('@sendgrid/mail');
 
+// Initialize SendGrid
+if (process.env.SENDGRID_API_KEY) {
+  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+}
+
+// Email helper function
+async function sendEmail(to, subject, text, html) {
+  if (!process.env.SENDGRID_API_KEY) {
+    console.log('SendGrid not configured. Email would have been sent:');
+    console.log(`To: ${to}, Subject: ${subject}`);
+    return;
+  }
+  
+  try {
+    await sgMail.send({
+      to: to,
+      from: process.env.FROM_EMAIL || 'warehouse@test.sendgrid.net',
+      subject: subject,
+      text: text,
+      html: html
+    });
+    console.log(`Email sent to ${to}: ${subject}`);
+  } catch (error) {
+    console.error('Error sending email:', error);
+  }
+}
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -85,7 +112,7 @@ app.get('/api/expenses', (req, res) => {
   res.json(expenses);
 });
 
-app.post('/api/expenses', (req, res) => {
+app.post('/api/expenses', async (req, res) => {
   const expense = {
     id: Date.now(),
     ...req.body,
@@ -99,10 +126,44 @@ app.post('/api/expenses', (req, res) => {
     }]
   };
   expenses.unshift(expense);
+  
+  // Send email to finance admins
+  const financeAdmins = users.filter(u => u.financeAdmin);
+  for (const admin of financeAdmins) {
+    const emailText = `
+New expense submitted by ${req.body.requestedBy}
+
+Title: ${req.body.title}
+Amount: GHS ${req.body.amount}
+Category: ${req.body.category}
+Date Incurred: ${req.body.dateIncurred}
+Description: ${req.body.description || 'No description'}
+
+Please log in to the warehouse system to review and approve this expense.
+    `;
+    
+    const emailHtml = `
+<h2>New Expense Submitted</h2>
+<p><strong>${req.body.requestedBy}</strong> has submitted a new expense for approval.</p>
+<table style="border-collapse: collapse; width: 100%; margin: 20px 0;">
+  <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Title:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${req.body.title}</td></tr>
+  <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Amount:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">GHS ${req.body.amount}</td></tr>
+  <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Category:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${req.body.category}</td></tr>
+  <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Date:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${req.body.dateIncurred}</td></tr>
+  <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Description:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${req.body.description || 'No description'}</td></tr>
+</table>
+<p>Please log in to review and approve this expense.</p>
+    `;
+    
+    // In production, you'd use admin.email here
+    // For now, replace with your test email
+    await sendEmail('melanie.abraham@gmail.com', `New Expense: ${req.body.title}`, emailText, emailHtml);
+  }
+  
   res.json({ success: true, expense });
 });
 
-app.post('/api/expenses/:id/approve', (req, res) => {
+app.post('/api/expenses/:id/approve', async (req, res) => {
   const expenseId = parseInt(req.params.id);
   const expense = expenses.find(e => e.id === expenseId);
   
@@ -116,13 +177,39 @@ app.post('/api/expenses/:id/approve', (req, res) => {
       user: req.body.approvedBy,
       note: `${req.body.approvedBy} approved this expense.`
     });
+    
+    // Send email to requester
+    const emailText = `
+Your expense has been approved!
+
+Title: ${expense.title}
+Amount: GHS ${expense.amount}
+Approved by: ${req.body.approvedBy}
+Approval Date: ${new Date().toLocaleDateString()}
+
+Your expense is now ready for payment processing.
+    `;
+    
+    const emailHtml = `
+<h2>Expense Approved ✓</h2>
+<p>Your expense <strong>${expense.title}</strong> has been approved by ${req.body.approvedBy}.</p>
+<table style="border-collapse: collapse; width: 100%; margin: 20px 0;">
+  <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Amount:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">GHS ${expense.amount}</td></tr>
+  <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Approved by:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${req.body.approvedBy}</td></tr>
+</table>
+<p>Your expense is now ready for payment processing.</p>
+    `;
+    
+    // Replace with actual user email in production
+    await sendEmail('melanie.abraham@gmail.com', `Expense Approved: ${expense.title}`, emailText, emailHtml);
+    
     res.json({ success: true, expense });
   } else {
     res.status(404).json({ success: false, message: 'Expense not found' });
   }
 });
 
-app.post('/api/expenses/:id/pay', (req, res) => {
+app.post('/api/expenses/:id/pay', async (req, res) => {
   const expenseId = parseInt(req.params.id);
   const expense = expenses.find(e => e.id === expenseId);
   
@@ -138,19 +225,46 @@ app.post('/api/expenses/:id/pay', (req, res) => {
       user: req.body.processedBy,
       note: `${req.body.processedBy} processed payment: ${req.body.paymentMethod}`
     });
-    res.json({ success: true, expense });
-  } else {
-    res.status(404).json({ success: false, message: 'Expense not found' });
-  }
-});
-let invoices = [];
-let customers = [
-  { id: 1, name: 'Asaph Agrochemical', phone: '0280414243', email: '', address: 'Kasapin, Ahafo' },
-  { id: 2, name: 'Sample Customer', phone: '0241234567', email: 'customer@example.com', address: 'Accra' }
-];
+    // Send email to requester
+        const emailText = `
+    Your expense has been paid!
 
-// Invoices API
-app.get('/api/invoices', (req, res) => {
+    Title: ${expense.title}
+    Amount: GHS ${expense.amount}
+    Payment Method: ${req.body.paymentMethod}
+    Reference: ${req.body.paymentReference || 'N/A'}
+    Processed by: ${req.body.processedBy}
+
+    Your payment has been completed.
+        `;
+        
+        const emailHtml = `
+    <h2>Expense Paid ✓</h2>
+    <p>Your expense <strong>${expense.title}</strong> has been paid.</p>
+    <table style="border-collapse: collapse; width: 100%; margin: 20px 0;">
+    <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Amount:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">GHS ${expense.amount}</td></tr>
+    <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Payment Method:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${req.body.paymentMethod}</td></tr>
+    <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Reference:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${req.body.paymentReference || 'N/A'}</td></tr>
+    <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Processed by:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${req.body.processedBy}</td></tr>
+    </table>
+    <p>Your payment has been completed.</p>
+        `;
+        
+        await sendEmail('melanie.abraham@gmail.com', `Expense Paid: ${expense.title}`, emailText, emailHtml);
+
+        res.json({ success: true, expense });
+    } else {
+        res.status(404).json({ success: false, message: 'Expense not found' });
+    }
+    });
+    let invoices = [];
+    let customers = [
+    { id: 1, name: 'Asaph Agrochemical', phone: '0280414243', email: '', address: 'Kasapin, Ahafo' },
+    { id: 2, name: 'Sample Customer', phone: '0241234567', email: 'customer@example.com', address: 'Accra' }
+    ];
+
+    // Invoices API
+    app.get('/api/invoices', (req, res) => {
   res.json(invoices);
 });
 
