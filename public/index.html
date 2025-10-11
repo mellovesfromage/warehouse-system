@@ -192,6 +192,11 @@
                 });
                 return totals;
             };
+            const getAccessibleWarehouses = () => {
+                if (!currentUser) return [];
+                if (currentUser.warehouseAccess === 'all') return warehouses;
+                return warehouses.filter(wh => currentUser.warehouseAccess.includes(wh.id));
+            };
             
             const handleTransaction = async () => {
                 if (!txQuantity || parseInt(txQuantity) <= 0) {
@@ -715,7 +720,7 @@ const submitExpense = async () => {
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {warehouses.map(warehouse => (
+                                            {getAccessibleWarehouses().map(warehouse => (
                                                 <tr key={warehouse.id} className="border-b hover:bg-gray-50">
                                                     <td className="px-4 py-3 text-sm font-medium text-gray-900">{warehouse.name}</td>
                                                     <td className="px-4 py-3 text-sm text-gray-600">{warehouse.location}</td>
@@ -773,7 +778,7 @@ const submitExpense = async () => {
                                                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                                                 >
                                                     <option value="">Select...</option>
-                                                    {warehouses.map(wh => (
+                                                    {getAccessibleWarehouses().map(wh => (
                                                         <option key={wh.id} value={wh.id}>{wh.name}</option>
                                                     ))}
                                                 </select>
@@ -786,7 +791,7 @@ const submitExpense = async () => {
                                                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                                                 >
                                                     <option value="">Select...</option>
-                                                    {warehouses.map(wh => (
+                                                    {getAccessibleWarehouses().map(wh => (
                                                         <option key={wh.id} value={wh.id}>{wh.name}</option>
                                                     ))}
                                                 </select>
@@ -801,8 +806,8 @@ const submitExpense = async () => {
                                                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
                                             >
                                                 <option value="">Select warehouse...</option>
-                                                {warehouses.map(wh => (
-                                                    <option key={wh.id} value={wh.id}>{wh.name}</option>
+                                                {getAccessibleWarehouses().map(w => (
+                                                    <option key={w.id} value={w.id}>{w.name}</option>
                                                 ))}
                                             </select>
                                         </div>
