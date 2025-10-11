@@ -182,21 +182,30 @@
             };
             
             const getStock = (whId, prodId) => stock[whId + '-' + prodId] || 0;
-            
             const calculateTotals = () => {
                 const totals = {};
+                const accessibleWarehouses = currentUser && currentUser.warehouseAccess === 'all' 
+                    ? warehouses 
+                    : currentUser && Array.isArray(currentUser.warehouseAccess)
+                    ? warehouses.filter(wh => currentUser.warehouseAccess.includes(wh.id))
+                    : warehouses;
+                
                 products.forEach(prod => {
-                    totals[prod.id] = warehouses.reduce((sum, wh) => {
+                    totals[prod.id] = accessibleWarehouses.reduce((sum, wh) => {
                         return sum + getStock(wh.id, prod.id);
                     }, 0);
                 });
                 return totals;
-            };
+            };            
             const getAccessibleWarehouses = () => {
                 if (!currentUser) return [];
-                if (currentUser.warehouseAccess === 'all') return warehouses;
-                return warehouses.filter(wh => currentUser.warehouseAccess.includes(wh.id));
+                if (!currentUser.warehouseAccess || currentUser.warehouseAccess === 'all') return warehouses;
+                if (Array.isArray(currentUser.warehouseAccess)) {
+                    return warehouses.filter(wh => currentUser.warehouseAccess.includes(wh.id));
+                }
+                return warehouses;
             };
+
             
             const handleTransaction = async () => {
                 if (!txQuantity || parseInt(txQuantity) <= 0) {
