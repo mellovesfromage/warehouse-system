@@ -20,9 +20,10 @@ app.use(session({
 
 // In-memory storage (will be replaced with database)
 let users = [
-  { id: 1, username: 'admin', password: 'admin123', name: 'Admin User', role: 'admin', financeAdmin: true },
+  { id: 1, username: 'admin', password: 'admin123', name: 'Admin User', role: 'admin', financeAdmin: true, warehouseAccess: 'all' },
   { id: 2, username: 'wh1', password: 'pass123', name: 'Warehouse 1 Manager', role: 'warehouse', warehouseAccess: [1], financeAdmin: false },
-  { id: 3, username: 'finance', password: 'pass123', name: 'Finance Admin', role: 'finance', financeAdmin: true }
+  { id: 3, username: 'wh2', password: 'pass123', name: 'Warehouse 2 Manager', role: 'warehouse', warehouseAccess: [2], financeAdmin: false },
+  { id: 4, username: 'finance', password: 'pass123', name: 'Finance Admin', role: 'finance', financeAdmin: true, warehouseAccess: 'all' }
 ];
 
 let stock = {
@@ -235,6 +236,56 @@ app.post('/api/customers', (req, res) => {
   };
   customers.unshift(customer);
   res.json({ success: true, customer });
+});
+// Users API
+app.get('/api/users', (req, res) => {
+  const safeUsers = users.map(u => ({
+    id: u.id,
+    username: u.username,
+    name: u.name,
+    role: u.role,
+    financeAdmin: u.financeAdmin,
+    warehouseAccess: u.warehouseAccess
+  }));
+  res.json(safeUsers);
+});
+
+app.post('/api/users', (req, res) => {
+  const newUser = {
+    id: Date.now(),
+    username: req.body.username,
+    password: req.body.password,
+    name: req.body.name,
+    role: req.body.role,
+    financeAdmin: req.body.financeAdmin || false,
+    warehouseAccess: req.body.warehouseAccess
+  };
+  users.push(newUser);
+  res.json({ success: true, user: newUser });
+});
+
+app.put('/api/users/:id', (req, res) => {
+  const userId = parseInt(req.params.id);
+  const userIndex = users.findIndex(u => u.id === userId);
+  
+  if (userIndex !== -1) {
+    users[userIndex] = {
+      ...users[userIndex],
+      name: req.body.name,
+      role: req.body.role,
+      financeAdmin: req.body.financeAdmin,
+      warehouseAccess: req.body.warehouseAccess
+    };
+    res.json({ success: true, user: users[userIndex] });
+  } else {
+    res.status(404).json({ success: false, message: 'User not found' });
+  }
+});
+
+app.delete('/api/users/:id', (req, res) => {
+  const userId = parseInt(req.params.id);
+  users = users.filter(u => u.id !== userId);
+  res.json({ success: true });
 });
 // Serve frontend
 app.get('*', (req, res) => {
