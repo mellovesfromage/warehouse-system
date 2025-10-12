@@ -72,7 +72,16 @@ app.post('/api/login', (req, res) => {
   
   if (user) {
     req.session.userId = user.id;
-    res.json({ success: true, user: { id: user.id, name: user.name, role: user.role, financeAdmin: user.financeAdmin } });
+    res.json({ 
+      success: true, 
+      user: { 
+        id: user.id, 
+        name: user.name, 
+        role: user.role, 
+        financeAdmin: user.financeAdmin,
+        warehouseAccess: user.warehouseAccess 
+      } 
+    });
   } else {
     res.status(401).json({ success: false, message: 'Invalid credentials' });
   }
