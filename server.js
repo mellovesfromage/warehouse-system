@@ -61,7 +61,10 @@ let stock = {
   '13-1': 408, '13-2': 0, '14-1': 36, '14-2': 19, '15-1': 2136, '15-2': 0,
   '16-1': 1658, '16-2': 8, '17-1': 0, '17-2': 0, '18-1': 0, '18-2': 0
 };
-
+let products = [
+  { id: 1, name: '1L Bottle', sku: '1L' },
+  { id: 2, name: '5L Bottle', sku: '5L' }
+];
 let movements = [];
 let expenses = [];
 
@@ -86,6 +89,7 @@ app.post('/api/login', (req, res) => {
     res.status(401).json({ success: false, message: 'Invalid credentials' });
   }
 });
+
 
 app.post('/api/logout', (req, res) => {
   req.session.destroy();
@@ -267,6 +271,7 @@ app.post('/api/expenses/:id/pay', async (req, res) => {
     }
     });
     let invoices = [];
+    let waybills = [];
     let customers = [
     { id: 1, name: 'Asaph Agrochemical', phone: '0280414243', email: '', address: 'Kasapin, Ahafo' },
     { id: 2, name: 'Sample Customer', phone: '0241234567', email: 'customer@example.com', address: 'Accra' }
@@ -316,7 +321,74 @@ app.post('/api/invoices', (req, res) => {
   invoices.unshift(invoice);
   res.json({ success: true, invoice });
 });
+// Waybills API
+app.get('/api/waybills', (req, res) => {
+  res.json(waybills);
+});
 
+app.post('/api/waybills', (req, res) => {
+  const waybill = {
+    id: Date.now(),
+    waybillNumber: 'WB-' + Date.now(),
+    ...req.body,
+    issueDate: new Date().toISOString(),
+    status: 'in-transit'
+  };
+  waybills.unshift(waybill);
+  res.json({ success: true, waybill });
+});
+
+app.post('/api/waybills/:id/receive', (req, res) => {
+  const waybillId = parseInt(req.params.id);
+  const waybill = waybills.find(w => w.id === waybillId);
+  
+  if (waybill) {
+    waybill.status = 'received';
+    waybill.receivedBy = req.body.receivedBy;
+    waybill.receivedDate = new Date().toISOString();
+    
+    // Add stock to destination warehouse
+    const key = `${waybill.toWarehouseId}-${waybill.productId}`;
+    stock[key] = (stock[key] || 0) + waybill.quantity;
+    
+    res.json({ success: true, waybill });
+  } else {
+    res.status(404).json({ success: false, message: 'Waybill not found' });
+  }
+});
+
+app.post('/api/waybills/:id/cancel', (req, res) => {
+  const waybillId = parseInt(req.params.id);
+  const waybill = waybills.find(w => w.id === waybillId);
+  
+  if (waybill) {
+    waybill.status = 'cancelled';
+    waybill.cancelledBy = req.body.cancelledBy;
+    waybill.cancelledDate = new Date().toISOString();
+    
+    // Return stock to source warehouse
+    const key = `${waybill.fromWarehouseId}-${waybill.productId}`;
+    stock[key] = (stock[key] || 0) + waybill.quantity;
+    
+    res.json({ success: true, waybill });
+  } else {
+    res.status(404).json({ success: false, message: 'Waybill not found' });
+  }
+});
+// Products API
+app.get('/api/products', (req, res) => {
+  res.json(products);
+});
+
+app.post('/api/products', (req, res) => {
+  const newProduct = {
+    id: Date.now(),
+    name: req.body.name,
+    sku: req.body.sku
+  };
+  products.push(newProduct);
+  res.json({ success: true, product: newProduct });
+});
 app.post('/api/invoices/:id/payment', (req, res) => {
   const invoiceId = parseInt(req.params.id);
   const invoice = invoices.find(i => i.id === invoiceId);
