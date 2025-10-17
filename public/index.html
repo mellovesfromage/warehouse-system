@@ -688,21 +688,21 @@ const createInvoice = async () => {
                                 </div>
 
                                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                    <div className="bg-white rounded-lg shadow p-6">
-                                        <h3 className="text-sm font-medium text-gray-600 mb-2">Total 1L Stock</h3>
-                                        <p className="text-3xl font-bold text-indigo-600">{productTotals[1].toLocaleString()}</p>
-                                        <p className="text-xs text-gray-500 mt-1">Across all warehouses</p>
-                                    </div>
-
-                                    <div className="bg-white rounded-lg shadow p-6">
-                                        <h3 className="text-sm font-medium text-gray-600 mb-2">Total 5L Stock</h3>
-                                        <p className="text-3xl font-bold text-green-600">{productTotals[2].toLocaleString()}</p>
-                                        <p className="text-xs text-gray-500 mt-1">Across all warehouses</p>
-                                    </div>
+                                    {products.slice(0, 2).map((product, index) => {
+                                        const colors = ['indigo', 'green'];
+                                        const color = colors[index] || 'blue';
+                                        return (
+                                            <div key={product.id} className="bg-white rounded-lg shadow p-6">
+                                                <h3 className="text-sm font-medium text-gray-600 mb-2">Total {product.name}</h3>
+                                                <p className={`text-3xl font-bold text-${color}-600`}>{(productTotals[product.id] || 0).toLocaleString()}</p>
+                                                <p className="text-xs text-gray-500 mt-1">Across all warehouses</p>
+                                            </div>
+                                        );
+                                    })}
 
                                     <div className="bg-white rounded-lg shadow p-6">
                                         <h3 className="text-sm font-medium text-gray-600 mb-2">Warehouses</h3>
-                                        <p className="text-3xl font-bold text-purple-600">{warehouses.length}</p>
+                                        <p className="text-3xl font-bold text-purple-600">{getAccessibleWarehouses().length}</p>
                                         <p className="text-xs text-gray-500 mt-1">Active locations</p>
                                     </div>
 
