@@ -47,10 +47,26 @@ app.use(session({
 
 // In-memory storage (will be replaced with database)
 let users = [
-  { id: 1, username: 'admin', password: 'admin123', name: 'Admin User', role: 'admin', financeAdmin: true, warehouseAccess: 'all' },
-  { id: 2, username: 'wh1', password: 'pass123', name: 'Warehouse 1 Manager', role: 'warehouse', warehouseAccess: [1], financeAdmin: false },
-  { id: 3, username: 'wh2', password: 'pass123', name: 'Warehouse 2 Manager', role: 'warehouse', warehouseAccess: [2], financeAdmin: false },
-  { id: 4, username: 'finance', password: 'pass123', name: 'Finance Admin', role: 'finance', financeAdmin: true, warehouseAccess: 'all' }
+  { id: 1, username: 'admin', password: 'admin123', name: 'Admin User', role: 'admin', financeAdmin: true, warehouseAccess: 'all', warehouseManager: null },
+  { id: 2, username: 'wh1', password: 'pass123', name: 'Warehouse 1 Manager', role: 'warehouse', warehouseAccess: [1], financeAdmin: false, warehouseManager: 1 },
+  { id: 3, username: 'wh2', password: 'pass123', name: 'Warehouse 2 Manager', role: 'warehouse', warehouseAccess: [2], financeAdmin: false, warehouseManager: 2 },
+  { id: 4, username: 'finance', password: 'pass123', name: 'Finance Admin', role: 'accountant', financeAdmin: true, warehouseAccess: 'all', warehouseManager: null }
+];
+
+const roleTypes = [
+  'CEO',
+  'COO', 
+  'Admin Officer',
+  'Driver',
+  'Sales Rep',
+  'Accountant',
+  'Chief Agronomist',
+  'Head of Production',
+  'Agogo Admin',
+  'Head of Admin',
+  'Head of Sales',
+  'Agogo Production Staff',
+  'Admin' // Keep for backwards compatibility
 ];
 
 let stock = {
@@ -62,11 +78,34 @@ let stock = {
   '16-1': 1658, '16-2': 8, '17-1': 0, '17-2': 0, '18-1': 0, '18-2': 0
 };
 let products = [
-  { id: 1, name: '1L Bottle', sku: '1L' },
-  { id: 2, name: '5L Bottle', sku: '5L' }
+  { id: 1, name: '1L Bottle', sku: '1L', price: 0 },
+  { id: 2, name: '5L Bottle', sku: '5L', price: 0 }
 ];
 let movements = [];
 let expenses = [];
+
+let activityLog = [];
+
+// Activity log helper function
+function logActivity(userId, userName, action, details) {
+  activityLog.unshift({
+    id: Date.now(),
+    userId,
+    userName,
+    action,
+    details,
+    timestamp: new Date().toISOString()
+  });
+  // Keep only last 1000 entries
+  if (activityLog.length > 1000) {
+    activityLog = activityLog.slice(0, 1000);
+  }
+}
+
+// Activity log API
+app.get('/api/activity-log', (req, res) => {
+  res.json(activityLog);
+});
 
 // API Routes
 app.post('/api/login', (req, res) => {
@@ -75,6 +114,7 @@ app.post('/api/login', (req, res) => {
   
   if (user) {
     req.session.userId = user.id;
+    logActivity(user.id, user.name, 'login', 'User logged in');
     res.json({ 
       success: true, 
       user: { 
@@ -101,12 +141,23 @@ app.get('/api/stock', (req, res) => {
 });
 
 app.post('/api/stock/update', (req, res) => {
-  const { warehouseId, productId, quantity } = req.body;
+  const { warehouseId, productId, quantity, userId, userName } = req.body;
   const key = `${warehouseId}-${productId}`;
-  stock[key] = (stock[key] || 0) + quantity;
+  const oldStock = stock[key] || 0;
+  stock[key] = oldStock + quantity;
+  
+  const product = products.find(p => p.id === productId);
+  const warehouse = warehouses.find(w => w.id === warehouseId);
+  
+  logActivity(
+    userId, 
+    userName, 
+    'stock_update', 
+    `Updated ${product?.name || 'Product'} stock at ${warehouse?.name || 'Warehouse'}: ${oldStock} → ${stock[key]} (${quantity >= 0 ? '+' : ''}${quantity})`
+  );
+  
   res.json({ success: true, newStock: stock[key] });
 });
-
 app.get('/api/movements', (req, res) => {
   res.json(movements);
 });
@@ -139,6 +190,13 @@ app.post('/api/expenses', async (req, res) => {
     }]
   };
   expenses.unshift(expense);
+  
+  logActivity(
+    req.body.requestedById,
+    req.body.requestedBy,
+    'expense_created',
+    `Created expense: ${req.body.title} (GHS ${req.body.amount})`
+  );
   
   // Send email to finance admins
   const financeAdmins = users.filter(u => u.financeAdmin);
@@ -190,7 +248,12 @@ app.post('/api/expenses/:id/approve', async (req, res) => {
       user: req.body.approvedBy,
       note: `${req.body.approvedBy} approved this expense.`
     });
-    
+      logActivity(
+      req.body.approvedById,
+      req.body.approvedBy,
+      'expense_approved',
+      `Approved expense: ${expense.title} (GHS ${expense.amount})`
+    );  
     // Send email to requester
     const emailText = `
 Your expense has been approved!
@@ -238,6 +301,12 @@ app.post('/api/expenses/:id/pay', async (req, res) => {
       user: req.body.processedBy,
       note: `${req.body.processedBy} processed payment: ${req.body.paymentMethod}`
     });
+    logActivity(
+      req.body.processedById,
+      req.body.processedBy,
+      'expense_paid',
+      `Marked expense as paid: ${expense.title} (GHS ${expense.amount}) via ${req.body.paymentMethod}`
+    );
     // Send email to requester
         const emailText = `
     Your expense has been paid!
@@ -317,6 +386,14 @@ app.post('/api/invoices', (req, res) => {
       });
     });
   }
+
+  const itemsSummary = req.body.items.map(i => `${i.quantity}x ${i.productName}`).join(', ');
+  logActivity(
+    req.body.createdById,
+    req.body.createdBy,
+    'invoice_created',
+    `Created invoice ${invoice.invoiceNumber} for ${req.body.customerName} (${itemsSummary}) - Total: GHS ${invoice.total}`
+  );
   
   invoices.unshift(invoice);
   res.json({ success: true, invoice });
@@ -335,6 +412,12 @@ app.post('/api/waybills', (req, res) => {
     status: 'in-transit'
   };
   waybills.unshift(waybill);
+  logActivity(
+    req.body.issuedById,
+    req.body.issuedBy,
+    'waybill_created',
+    `Created waybill ${waybill.waybillNumber}: ${req.body.quantity}x ${req.body.productName} from ${req.body.fromWarehouseName} to ${req.body.toWarehouseName}`
+  );
   res.json({ success: true, waybill });
 });
 
@@ -350,6 +433,12 @@ app.post('/api/waybills/:id/receive', (req, res) => {
     // Add stock to destination warehouse
     const key = `${waybill.toWarehouseId}-${waybill.productId}`;
     stock[key] = (stock[key] || 0) + waybill.quantity;
+     logActivity(
+      req.body.receivedById,
+      req.body.receivedBy,
+      'waybill_received',
+      `Received waybill ${waybill.waybillNumber}: ${waybill.quantity}x ${waybill.productName} at ${waybill.toWarehouseName}`
+    );
     
     res.json({ success: true, waybill });
   } else {
@@ -370,6 +459,12 @@ app.post('/api/waybills/:id/cancel', (req, res) => {
     const key = `${waybill.fromWarehouseId}-${waybill.productId}`;
     stock[key] = (stock[key] || 0) + waybill.quantity;
     
+     logActivity(
+      req.body.cancelledById,
+      req.body.cancelledBy,
+      'waybill_cancelled',
+      `Cancelled waybill ${waybill.waybillNumber}: ${waybill.quantity}x ${waybill.productName} returned to ${waybill.fromWarehouseName}`
+    );
     res.json({ success: true, waybill });
   } else {
     res.status(404).json({ success: false, message: 'Waybill not found' });
@@ -384,10 +479,45 @@ app.post('/api/products', (req, res) => {
   const newProduct = {
     id: Date.now(),
     name: req.body.name,
-    sku: req.body.sku
+    sku: req.body.sku,
+    price: parseFloat(req.body.price) || 0
   };
   products.push(newProduct);
+   logActivity(
+    req.body.createdById,
+    req.body.createdByName,
+    'product_created',
+    `Created new product: ${newProduct.name} (${newProduct.sku}) - Price: GHS ${newProduct.price}`
+  );
   res.json({ success: true, product: newProduct });
+});
+
+// Add product update endpoint
+app.put('/api/products/:id', (req, res) => {
+  const productId = parseInt(req.params.id);
+  const productIndex = products.findIndex(p => p.id === productId);
+  
+  if (productIndex !== -1) {
+    products[productIndex] = {
+      ...products[productIndex],
+      name: req.body.name,
+      sku: req.body.sku,
+      price: parseFloat(req.body.price) || 0
+    };
+      const changes = [];
+    if (oldProduct.name !== req.body.name) changes.push(`name: ${oldProduct.name} → ${req.body.name}`);
+    if (oldProduct.price !== req.body.price) changes.push(`price: GHS ${oldProduct.price} → GHS ${req.body.price}`);
+    
+    logActivity(
+      req.body.updatedById,
+      req.body.updatedByName,
+      'product_updated',
+      `Updated product ${req.body.name}: ${changes.join(', ')}`
+    );
+    res.json({ success: true, product: products[productIndex] });
+  } else {
+    res.status(404).json({ success: false, message: 'Product not found' });
+  }
 });
 app.post('/api/invoices/:id/payment', (req, res) => {
   const invoiceId = parseInt(req.params.id);
@@ -413,6 +543,12 @@ app.post('/api/invoices/:id/payment', (req, res) => {
     } else {
       invoice.status = 'partial';
     }
+     logActivity(
+      req.body.recordedById,
+      req.body.recordedBy,
+      'payment_recorded',
+      `Recorded payment of GHS ${req.body.amount} for invoice ${invoice.invoiceNumber} via ${req.body.method}`
+    );
     
     res.json({ success: true, invoice });
   } else {
@@ -456,6 +592,12 @@ app.post('/api/users', (req, res) => {
     warehouseAccess: req.body.warehouseAccess
   };
   users.push(newUser);
+  logActivity(
+    req.body.createdById,
+    req.body.createdByName,
+    'user_created',
+    `Created new user: ${newUser.name} (${newUser.role})`
+  );
   res.json({ success: true, user: newUser });
 });
 
@@ -471,6 +613,17 @@ app.put('/api/users/:id', (req, res) => {
       financeAdmin: req.body.financeAdmin,
       warehouseAccess: req.body.warehouseAccess
     };
+     const changes = [];
+    if (oldUser.name !== req.body.name) changes.push(`name: ${oldUser.name} → ${req.body.name}`);
+    if (oldUser.role !== req.body.role) changes.push(`role: ${oldUser.role} → ${req.body.role}`);
+    if (oldUser.financeAdmin !== req.body.financeAdmin) changes.push(`financeAdmin: ${oldUser.financeAdmin} → ${req.body.financeAdmin}`);
+    
+    logActivity(
+      req.body.updatedById,
+      req.body.updatedByName,
+      'user_updated',
+      `Updated user ${req.body.name}: ${changes.join(', ')}`
+    );
     res.json({ success: true, user: users[userIndex] });
   } else {
     res.status(404).json({ success: false, message: 'User not found' });
@@ -479,9 +632,67 @@ app.put('/api/users/:id', (req, res) => {
 
 app.delete('/api/users/:id', (req, res) => {
   const userId = parseInt(req.params.id);
+  const user = users.find(u => u.id === userId);
+  
+  if (user) {
+    logActivity(
+      req.body.deletedById,
+      req.body.deletedByName,
+      'user_deleted',
+      `Deleted user: ${user.name} (${user.role})`
+    );
+  }
+  
   users = users.filter(u => u.id !== userId);
   res.json({ success: true });
 });
+// Role types API
+app.get('/api/roles', (req, res) => {
+  res.json(roleTypes);
+});
+
+// Warehouse permissions view API
+app.get('/api/warehouse-permissions', (req, res) => {
+  const permissions = warehouses.map(warehouse => {
+    const usersWithAccess = users.filter(u => 
+      u.warehouseAccess === 'all' || 
+      (Array.isArray(u.warehouseAccess) && u.warehouseAccess.includes(warehouse.id))
+    );
+    const manager = users.find(u => u.warehouseManager === warehouse.id);
+    
+    return {
+      warehouseId: warehouse.id,
+      warehouseName: warehouse.name,
+      userCount: usersWithAccess.length,
+      users: usersWithAccess.map(u => ({ id: u.id, name: u.name, role: u.role })),
+      manager: manager ? { id: manager.id, name: manager.name } : null
+    };
+  });
+  res.json(permissions);
+});
+
+// Add warehouses array
+const warehouses = [
+  { id: 1, name: 'Agogo', type: 'sub', location: 'Ghana' },
+  { id: 2, name: 'Techiman', type: 'sub', location: 'Ghana' },
+  { id: 3, name: 'Ashanti', type: 'sub', location: 'Ghana' },
+  { id: 4, name: 'Volta', type: 'sub', location: 'Ghana' },
+  { id: 5, name: 'Accra', type: 'central', location: 'Ghana' },
+  { id: 6, name: 'Bolga', type: 'sub', location: 'Ghana' },
+  { id: 7, name: 'Tamale', type: 'sub', location: 'Ghana' },
+  { id: 8, name: 'Enchi', type: 'sub', location: 'Ghana' },
+  { id: 9, name: 'Inventory Management', type: 'central', location: 'Ghana' },
+  { id: 10, name: 'New Abirem and Koforidua', type: 'sub', location: 'Ghana' },
+  { id: 11, name: 'Damongo', type: 'sub', location: 'Ghana' },
+  { id: 12, name: 'CSIR-IIR East Legon', type: 'sub', location: 'Ghana' },
+  { id: 13, name: 'Wa', type: 'sub', location: 'Ghana' },
+  { id: 14, name: 'Goaso', type: 'sub', location: 'Ghana' },
+  { id: 15, name: 'Ashanti1', type: 'sub', location: 'Ghana' },
+  { id: 16, name: 'Sunyani', type: 'sub', location: 'Ghana' },
+  { id: 17, name: 'Hohoe', type: 'sub', location: 'Ghana' },
+  { id: 18, name: 'Assin Fosu', type: 'sub', location: 'Ghana' }
+];
+
 // Serve frontend
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));

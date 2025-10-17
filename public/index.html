@@ -99,14 +99,19 @@
             const [selectedWaybill, setSelectedWaybill] = useState(null);
             const [newProductName, setNewProductName] = useState('');
             const [newProductSku, setNewProductSku] = useState('');
+            //activity log
+            const [activityLog, setActivityLog] = useState([]);
+            const [activityFilter, setActivityFilter] = useState('all');
             // Invoice states
             const [invoices, setInvoices] = useState([]);
             const [customers, setCustomers] = useState([]);
             const [selectedInvoice, setSelectedInvoice] = useState(null);
             const [invoiceCustomer, setInvoiceCustomer] = useState('');
             const [invoiceWarehouse, setInvoiceWarehouse] = useState('');
-            const [invoiceItems, setInvoiceItems] = useState([{ productId: '', quantity: '', unitPrice: '', discount: 0 }]);
+            const [invoiceItems, setInvoiceItems] = useState([{ productId: '', quantity: '', unitPrice: '', discount: 0, isSample: false, sampleNotes: '' }]);
+            const [invoiceDate, setInvoiceDate] = useState('');
             const [invoiceDueDate, setInvoiceDueDate] = useState('');
+            const [invoicePaymentPlan, setInvoicePaymentPlan] = useState('Full Payment');
             const [invoicePaymentMethod, setInvoicePaymentMethod] = useState('');
             const [invoiceSalesRep, setInvoiceSalesRep] = useState('');
             const [paymentAmount, setPaymentAmount] = useState('');
@@ -156,6 +161,7 @@
                 const usersData = await fetch('/api/users').then(r => r.json());
                 const waybillsData = await fetch('/api/waybills').then(r => r.json());
                 const productsData = await fetch('/api/products').then(r => r.json());
+                const activityLogData = await fetch('/api/activity-log').then(r => r.json());
                 setStock(stockData);
                 setMovements(movementsData);
                 setExpenses(expensesData);
@@ -164,6 +170,7 @@
                 setAllUsers(usersData);
                 setWaybills(waybillsData);
                 setProducts(productsData);
+                setActivityLog(activityLogData);
             };
             
             const handleLogin = async () => {
@@ -235,7 +242,13 @@
                     await fetch('/api/stock/update', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ warehouseId: whId, productId: prodId, quantity: qty })
+                        body: JSON.stringify({ 
+                            warehouseId: whId, 
+                            productId: prodId, 
+                            quantity: qty,
+                            userId: currentUser.id,
+                            userName: currentUser.name 
+                        })
                     });
                     
                     await fetch('/api/movements', {
@@ -247,7 +260,8 @@
                             productName: prod.name,
                             quantity: qty,
                             notes: txNotes,
-                            user: currentUser.name
+                            user: currentUser.name,
+                            userId: currentUser.id
                         })
                     });
                     
@@ -282,7 +296,8 @@
                             productName: prod.name,
                             quantity: qty,
                             notes: txNotes,
-                            user: currentUser.name
+                            user: currentUser.name,
+                            userId: currentUser.id
                         })
                     });
                     
@@ -324,7 +339,8 @@
                             productName: prod.name,
                             quantity: qty,
                             notes: txNotes,
-                            issuedBy: currentUser.name
+                            issuedBy: currentUser.name,
+                            issuedById: currentUser.id
                         })
                     });
                     
@@ -389,34 +405,37 @@ const submitExpense = async () => {
                 await fetch(`/api/expenses/${expenseId}/approve`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ approvedBy: currentUser.name })
+                    body: JSON.stringify({ 
+                        approvedBy: currentUser.name, 
+                        approvedById: currentUser.id})
                 });
                 await fetchData();
                 setSelectedExpense(null);
                 alert('Expense approved!');
             };
             
-            const markAsPaid = async (expenseId) => {
-    if (!paymentMethod) {
-        alert('Please enter payment method');
-        return;
-    }
-    
-    await fetch(`/api/expenses/${expenseId}/pay`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            processedBy: currentUser.name,
-            paymentMethod,
-            paymentReference
-        })
-    });
-    await fetchData();
-    setSelectedExpense(null);
-    setPaymentMethod('');
-    setPaymentReference('');
-    alert('Expense marked as paid!');
-};
+           const markAsPaid = async (expenseId) => {
+                if (!paymentMethod) {
+                    alert('Please enter payment method');
+                    return;
+                }
+                
+                await fetch(`/api/expenses/${expenseId}/pay`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        processedBy: currentUser.name,
+                        processedById: currentUser.id,
+                        paymentMethod,
+                        paymentReference
+                    })
+                });
+                await fetchData();
+                setSelectedExpense(null);
+                setPaymentMethod('');
+                setPaymentReference('');
+                alert('Expense marked as paid!');
+            };
 
 const createInvoice = async () => {
     if (!invoiceCustomer || !invoiceWarehouse || invoiceItems.length === 0) {
@@ -485,7 +504,8 @@ const createInvoice = async () => {
             body: JSON.stringify({
                 amount: parseFloat(paymentAmount),
                 method: paymentMethod,
-                recordedBy: currentUser.name
+                recordedBy: currentUser.name,
+                recordedById: currentUser.id
             })
         });
         
@@ -495,18 +515,42 @@ const createInvoice = async () => {
         alert('Payment recorded successfully!');
     };
 
-    const addInvoiceItem = () => {
-        setInvoiceItems([...invoiceItems, { productId: '', quantity: '', unitPrice: '', discount: 0 }]);
-    };
-
     const removeInvoiceItem = (index) => {
         setInvoiceItems(invoiceItems.filter((_, i) => i !== index));
     };
 
     const updateInvoiceItem = (index, field, value) => {
         const newItems = [...invoiceItems];
-        newItems[index][field] = value;
+        
+        if (field === 'productId') {
+            const product = products.find(p => p.id === parseInt(value));
+            newItems[index][field] = value;
+            // Auto-fill unit price from product
+            if (product && !newItems[index].isSample) {
+                newItems[index].unitPrice = product.price || '';
+            }
+        } else if (field === 'isSample') {
+            newItems[index][field] = value;
+            // Set price to 0 if sample
+            if (value) {
+                newItems[index].unitPrice = 0;
+                newItems[index].discount = 0;
+            } else {
+                // Restore product price if not sample
+                const product = products.find(p => p.id === parseInt(newItems[index].productId));
+                if (product) {
+                    newItems[index].unitPrice = product.price || '';
+                }
+            }
+        } else {
+            newItems[index][field] = value;
+        }
+        
         setInvoiceItems(newItems);
+    };
+
+    const addInvoiceItem = () => {
+        setInvoiceItems([...invoiceItems, { productId: '', quantity: '', unitPrice: '', discount: 0, isSample: false, sampleNotes: '' }]);
     };
 
     
@@ -666,7 +710,7 @@ const createInvoice = async () => {
                     <nav className="bg-white shadow-sm border-b">
                         <div className="max-w-7xl mx-auto px-4">
                             <div className="flex space-x-8">
-                               {['dashboard', 'stock', 'transactions', 'history', 'expenses', 'invoices', 'waybills', ...(currentUser.role === 'admin' ? ['products', 'users'] : [])].map(tab => (
+                              {['dashboard', 'stock', 'transactions', 'history', 'expenses', 'invoices', 'waybills', ...(currentUser.role === 'admin' ? ['products', 'activity-log', 'users'] : [])].map(tab => (
                                     <button
                                         key={tab}
                                         onClick={() => setActiveTab(tab)}
@@ -950,26 +994,6 @@ className="w-full px-3 py-2 border border-gray-300 rounded-md"
                                     + New Expense
                                 </button>
                             </div>
-
-                            <div className="grid grid-cols-4 gap-4">
-                                <div className="bg-white rounded-lg shadow p-4">
-                                    <h3 className="text-sm text-gray-600 mb-2">Submitted</h3>
-                                    <p className="text-2xl font-bold text-yellow-600">{expenses.filter(e => e.status === 'submitted').length}</p>
-                                </div>
-                                <div className="bg-white rounded-lg shadow p-4">
-                                    <h3 className="text-sm text-gray-600 mb-2">Approved</h3>
-                                    <p className="text-2xl font-bold text-blue-600">{expenses.filter(e => e.status === 'approved').length}</p>
-                                </div>
-                                <div className="bg-white rounded-lg shadow p-4">
-                                    <h3 className="text-sm text-gray-600 mb-2">Paid</h3>
-                                    <p className="text-2xl font-bold text-green-600">{expenses.filter(e => e.status === 'paid').length}</p>
-                                </div>
-                                <div className="bg-white rounded-lg shadow p-4">
-                                    <h3 className="text-sm text-gray-600 mb-2">Total Amount</h3>
-                                    <p className="text-2xl font-bold text-gray-900">GHS {expenses.reduce((sum, e) => sum + e.amount, 0).toFixed(2)}</p>
-                                </div>
-                            </div>
-
                             <div className="bg-white rounded-lg shadow">
                                 <table className="w-full">
                                     <thead>
@@ -1373,7 +1397,13 @@ className="w-full px-3 py-2 border border-gray-300 rounded-md"
         <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-bold text-gray-800">New Invoice</h2>
             <button
-                onClick={() => setSelectedInvoice(null)}
+                onClick={() => {
+                    setSelectedInvoice(null);
+                    setInvoiceItems([{ productId: '', quantity: '', unitPrice: '', discount: 0, isSample: false, sampleNotes: '' }]);
+                    setInvoiceDate(new Date().toISOString().split('T')[0]);
+                    setInvoiceDueDate('');
+                    setInvoicePaymentPlan('Full Payment');
+                }}
                 className="text-gray-600 hover:text-gray-900"
             >
                 ✕ Close
@@ -1404,14 +1434,24 @@ className="w-full px-3 py-2 border border-gray-300 rounded-md"
                         className="w-full px-3 py-2 border border-gray-300 rounded-md"
                     >
                         <option value="">Select warehouse...</option>
-                        {warehouses.map(w => (
+                        {getAccessibleWarehouses().map(w => (
                             <option key={w.id} value={w.id}>{w.name}</option>
                         ))}
                     </select>
                 </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-4 gap-4">
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Invoice Date *</label>
+                    <input
+                        type="date"
+                        value={invoiceDate}
+                        onChange={(e) => setInvoiceDate(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    />
+                </div>
+                
                 <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
                     <input
@@ -1420,20 +1460,19 @@ className="w-full px-3 py-2 border border-gray-300 rounded-md"
                         onChange={(e) => setInvoiceDueDate(e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md"
                     />
+                    <p className="text-xs text-gray-500 mt-1">Leave blank for cash sales</p>
                 </div>
                 
                 <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Payment Method</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Payment Plan *</label>
                     <select
-                        value={invoicePaymentMethod}
-                        onChange={(e) => setInvoicePaymentMethod(e.target.value)}
+                        value={invoicePaymentPlan}
+                        onChange={(e) => setInvoicePaymentPlan(e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md"
                     >
-                        <option value="">Select...</option>
-                        <option value="Cash">Cash</option>
-                        <option value="Mobile Money">Mobile Money</option>
-                        <option value="Bank Transfer">Bank Transfer</option>
-                        <option value="Cheque">Cheque</option>
+                        <option value="Full Payment">Full Payment</option>
+                        <option value="Half Now, Half Later">Half Now, Half Later</option>
+                        <option value="Custom Installments">Custom Installments</option>
                     </select>
                 </div>
                 
@@ -1461,66 +1500,110 @@ className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 </div>
                 
                 {invoiceItems.map((item, index) => (
-                    <div key={index} className="grid grid-cols-6 gap-2 mb-2">
-                        <div className="col-span-2">
-                            <select
-                                value={item.productId}
-                                onChange={(e) => updateInvoiceItem(index, 'productId', e.target.value)}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-                            >
-                                <option value="">Select product...</option>
-                                {products.map(p => (
-                                    <option key={p.id} value={p.id}>{p.name}</option>
-                                ))}
-                            </select>
+                    <div key={index} className="mb-4 p-4 border border-gray-200 rounded-lg">
+                        <div className="grid grid-cols-6 gap-2 mb-2">
+                            <div className="col-span-2">
+                                <label className="block text-xs text-gray-600 mb-1">Product</label>
+                                <select
+                                    value={item.productId}
+                                    onChange={(e) => updateInvoiceItem(index, 'productId', e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                                    disabled={item.isSample}
+                                >
+                                    <option value="">Select product...</option>
+                                    {products.map(p => (
+                                        <option key={p.id} value={p.id}>{p.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-xs text-gray-600 mb-1">Quantity</label>
+                                <input
+                                    type="number"
+                                    placeholder="Qty"
+                                    value={item.quantity}
+                                    onChange={(e) => updateInvoiceItem(index, 'quantity', e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs text-gray-600 mb-1">Unit Price</label>
+                                <input
+                                    type="number"
+                                    placeholder="Price"
+                                    value={item.unitPrice}
+                                    onChange={(e) => updateInvoiceItem(index, 'unitPrice', e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                                    disabled={item.isSample}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs text-gray-600 mb-1">Discount</label>
+                                <input
+                                    type="number"
+                                    placeholder="Discount"
+                                    value={item.discount}
+                                    onChange={(e) => updateInvoiceItem(index, 'discount', e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                                    disabled={item.isSample}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs text-gray-600 mb-1">Line Total</label>
+                                <div className="px-3 py-2 bg-gray-50 border border-gray-300 rounded-md text-sm font-semibold">
+                                    GHS {((parseFloat(item.quantity) || 0) * (parseFloat(item.unitPrice) || 0) - (parseFloat(item.discount) || 0)).toFixed(2)}
+                                </div>
+                            </div>
                         </div>
-                        <div>
-                            <input
-                                type="number"
-                                placeholder="Qty"
-                                value={item.quantity}
-                                onChange={(e) => updateInvoiceItem(index, 'quantity', e.target.value)}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-                            />
-                        </div>
-                        <div>
-                            <input
-                                type="number"
-                                placeholder="Unit Price"
-                                value={item.unitPrice}
-                                onChange={(e) => updateInvoiceItem(index, 'unitPrice', e.target.value)}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-                            />
-                        </div>
-                        <div>
-                            <input
-                                type="number"
-                                placeholder="Discount"
-                                value={item.discount}
-                                onChange={(e) => updateInvoiceItem(index, 'discount', e.target.value)}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-                            />
-                        </div>
-                        <div>
+                        
+                        <div className="flex items-center gap-4 mt-2">
+                            <label className="flex items-center">
+                                <input
+                                    type="checkbox"
+                                    checked={item.isSample}
+                                    onChange={(e) => updateInvoiceItem(index, 'isSample', e.target.checked)}
+                                    className="mr-2"
+                                />
+                                <span className="text-sm text-gray-700">Sample Given</span>
+                            </label>
+                            
+                            {item.isSample && (
+                                <div className="flex-1">
+                                    <input
+                                        type="text"
+                                        placeholder="Sample notes..."
+                                        value={item.sampleNotes}
+                                        onChange={(e) => updateInvoiceItem(index, 'sampleNotes', e.target.value)}
+                                        className="w-full px-3 py-1 border border-gray-300 rounded-md text-sm"
+                                    />
+                                </div>
+                            )}
+                            
                             {invoiceItems.length > 1 && (
                                 <button
                                     onClick={() => removeInvoiceItem(index)}
-                                    className="w-full px-3 py-2 bg-red-100 text-red-600 rounded-md text-sm hover:bg-red-200"
+                                    className="px-3 py-1 bg-red-100 text-red-600 rounded-md text-sm hover:bg-red-200"
                                 >
                                     Remove
                                 </button>
                             )}
                         </div>
+                        
+                        {item.isSample && (
+                            <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
+                                ⚠️ Samples will be deducted from inventory at zero cost
+                            </div>
+                        )}
                     </div>
                 ))}
             </div>
 
             <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Attachments</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Attachments (up to 5 files)</label>
                 <input
                     type="file"
                     multiple
-                    accept=".pdf,.jpg,.jpeg,.png"
+                    accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
                     onChange={(e) => {
                         const files = Array.from(e.target.files).slice(0, 5);
                         const fileNames = files.map(f => f.name);
@@ -1528,6 +1611,17 @@ className="w-full px-3 py-2 border border-gray-300 rounded-md"
                     }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 />
+                <p className="text-xs text-gray-500 mt-1">Max 5 files (PDF, JPG, PNG, DOC, DOCX)</p>
+                {invoiceAttachments.length > 0 && (
+                    <div className="mt-2">
+                        <p className="text-sm font-medium text-gray-700">Attached files:</p>
+                        <ul className="text-xs text-gray-600 list-disc list-inside">
+                            {invoiceAttachments.map((file, idx) => (
+                                <li key={idx}>{file}</li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
             </div>
 
             <div className="flex space-x-3">
@@ -1538,7 +1632,13 @@ className="w-full px-3 py-2 border border-gray-300 rounded-md"
                     Create Invoice
                 </button>
                 <button
-                    onClick={() => setSelectedInvoice(null)}
+                    onClick={() => {
+                        setSelectedInvoice(null);
+                        setInvoiceItems([{ productId: '', quantity: '', unitPrice: '', discount: 0, isSample: false, sampleNotes: '' }]);
+                        setInvoiceDate(new Date().toISOString().split('T')[0]);
+                        setInvoiceDueDate('');
+                        setInvoicePaymentPlan('Full Payment');
+                    }}
                     className="px-6 bg-gray-200 text-gray-700 py-2 rounded-md hover:bg-gray-300"
                 >
                     Cancel
@@ -1546,141 +1646,7 @@ className="w-full px-3 py-2 border border-gray-300 rounded-md"
             </div>
         </div>
     </div>
-)}
-
-{activeTab === 'invoices' && selectedInvoice && selectedInvoice !== 'new' && (
-    <div className="bg-white rounded-lg shadow p-6">
-        <div className="flex justify-between items-start mb-6">
-            <div>
-                <h2 className="text-xl font-bold text-gray-800">Invoice {selectedInvoice.invoiceNumber}</h2>
-                <p className="text-sm text-gray-600">Issue Date: {new Date(selectedInvoice.issueDate).toLocaleDateString()}</p>
-            </div>
-            <button
-                onClick={() => setSelectedInvoice(null)}
-                className="text-gray-600 hover:text-gray-900"
-            >
-                ✕ Close
-            </button>
-        </div>
-
-        <div className="grid grid-cols-2 gap-6 mb-6">
-            <div className="p-4 bg-gray-50 rounded-lg">
-                <h3 className="font-semibold text-gray-800 mb-2">Customer Information</h3>
-                <p className="text-gray-900 font-medium">{selectedInvoice.customerName}</p>
-                <p className="text-sm text-gray-600">{selectedInvoice.customerPhone}</p>
-                <p className="text-sm text-gray-600">{selectedInvoice.customerAddress}</p>
-            </div>
-            
-            <div className="p-4 bg-gray-50 rounded-lg">
-                <h3 className="font-semibold text-gray-800 mb-2">Invoice Details</h3>
-                <p className="text-sm"><span className="text-gray-600">Storeroom:</span> <span className="font-medium">{selectedInvoice.warehouseName}</span></p>
-                <p className="text-sm"><span className="text-gray-600">Sales Rep:</span> <span className="font-medium">{selectedInvoice.salesRep || '-'}</span></p>
-                <p className="text-sm"><span className="text-gray-600">Payment Method:</span> <span className="font-medium">{selectedInvoice.paymentMethod || '-'}</span></p>
-            </div>
-        </div>
-
-        <div className="mb-6">
-            <h3 className="font-semibold text-gray-800 mb-3">Order Items</h3>
-            <table className="w-full">
-                <thead>
-                    <tr className="bg-gray-50 border-b">
-                        <th className="px-4 py-2 text-left text-sm">Product</th>
-                        <th className="px-4 py-2 text-right text-sm">Quantity</th>
-                        <th className="px-4 py-2 text-right text-sm">Unit Price</th>
-                        <th className="px-4 py-2 text-right text-sm">Discount</th>
-                        <th className="px-4 py-2 text-right text-sm">Total</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {selectedInvoice.items.map((item, idx) => (
-                        <tr key={idx} className="border-b">
-                            <td className="px-4 py-2 text-sm">{item.productName}</td>
-                            <td className="px-4 py-2 text-sm text-right">{item.quantity}</td>
-                            <td className="px-4 py-2 text-sm text-right">GHS {item.unitPrice.toFixed(2)}</td>
-                            <td className="px-4 py-2 text-sm text-right">{item.discount > 0 ? 'GHS ' + item.discount.toFixed(2) : '-'}</td>
-                            <td className="px-4 py-2 text-sm text-right font-semibold">GHS {item.total.toFixed(2)}</td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-            
-            <div className="mt-4 flex justify-end">
-                <div className="w-64 space-y-2">
-                    <div className="flex justify-between text-sm">
-                        <span className="text-gray-600">Subtotal:</span>
-                        <span className="font-semibold">GHS {selectedInvoice.subtotal.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm border-t pt-2">
-                        <span className="text-gray-900 font-semibold">Paid:</span>
-                        <span className="font-semibold text-green-600">GHS {((selectedInvoice.payments || []).reduce((sum, p) => sum + p.amount, 0)).toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm border-t pt-2">
-                        <span className="text-gray-900 font-bold">Balance Due:</span>
-                        <span className="font-bold text-red-600">GHS {(selectedInvoice.total - (selectedInvoice.payments || []).reduce((sum, p) => sum + p.amount, 0)).toFixed(2)}</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        {selectedInvoice.payments && selectedInvoice.payments.length > 0 && (
-            <div className="mb-6">
-                <h3 className="font-semibold text-gray-800 mb-3">Payment History</h3>
-                {selectedInvoice.payments.map(payment => (
-                    <div key={payment.id} className="flex justify-between p-3 bg-green-50 rounded mb-2">
-                        <div>
-                            <p className="font-semibold text-green-900">GHS {payment.amount.toFixed(2)}</p>
-                            <p className="text-sm text-green-700">{payment.method}</p>
-                        </div>
-                        <p className="text-sm text-green-700">{new Date(payment.date).toLocaleDateString()}</p>
-                    </div>
-                ))}
-            </div>
-        )}
-
-        {selectedInvoice.attachments && selectedInvoice.attachments.length > 0 && (
-            <div className="mb-6">
-                <h3 className="font-semibold text-gray-800 mb-3">Attachments</h3>
-                {selectedInvoice.attachments.map((file, idx) => (
-                    <div key={idx} className="p-2 bg-gray-50 rounded mb-1">
-                        <p className="text-sm text-gray-700">{file}</p>
-                    </div>
-                ))}
-            </div>
-        )}
-
-        {selectedInvoice.status !== 'paid' && (
-            <div className="mt-6 pt-6 border-t">
-                <h3 className="text-sm font-medium text-gray-700 mb-3">Record Payment</h3>
-                <div className="grid grid-cols-3 gap-3">
-                    <input
-                        type="number"
-                        step="0.01"
-                        placeholder="Amount"
-                        value={paymentAmount}
-                        onChange={(e) => setPaymentAmount(e.target.value)}
-                        className="px-3 py-2 border border-gray-300 rounded-md"
-                    />
-                    <select
-                        value={paymentMethod}
-                        onChange={(e) => setPaymentMethod(e.target.value)}
-                        className="px-3 py-2 border border-gray-300 rounded-md"
-                    >
-                        <option value="Cash">Cash</option>
-                        <option value="Mobile Money">Mobile Money</option>
-                        <option value="Bank Transfer">Bank Transfer</option>
-                        <option value="Cheque">Cheque</option>
-                    </select>
-                    <button
-                        onClick={() => recordPayment(selectedInvoice.id)}
-                        className="bg-green-600 text-white py-2 rounded-md hover:bg-green-700"
-                    >
-                        Record Payment
-                    </button>
-                </div>
-            </div>
-        )}
-    </div>
-)}  
+)}      
 {activeTab === 'waybills' && !selectedWaybill && (
     <div className="space-y-6">
         <div className="flex justify-between items-center">
@@ -1966,6 +1932,112 @@ className="w-full px-3 py-2 border border-gray-300 rounded-md"
                             </tr>
                         );
                     })}
+                </tbody>
+            </table>
+        </div>
+    </div>
+)}
+{activeTab === 'activity-log' && currentUser.role === 'admin' && (
+    <div className="space-y-6">
+        <div className="flex justify-between items-center">
+            <h2 className="text-xl font-bold text-gray-800">Activity Log</h2>
+            <select
+                value={activityFilter}
+                onChange={(e) => setActivityFilter(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-md"
+            >
+                <option value="all">All Activities</option>
+                <option value="login">Logins</option>
+                <option value="stock_update">Stock Updates</option>
+                <option value="expense_created">Expenses Created</option>
+                <option value="expense_approved">Expenses Approved</option>
+                <option value="expense_paid">Expenses Paid</option>
+                <option value="invoice_created">Invoices Created</option>
+                <option value="payment_recorded">Payments Recorded</option>
+                <option value="waybill_created">Waybills Created</option>
+                <option value="waybill_received">Waybills Received</option>
+                <option value="waybill_cancelled">Waybills Cancelled</option>
+                <option value="user_created">Users Created</option>
+                <option value="user_updated">Users Updated</option>
+                <option value="user_deleted">Users Deleted</option>
+                <option value="product_created">Products Created</option>
+                <option value="product_updated">Products Updated</option>
+            </select>
+        </div>
+
+        <div className="bg-white rounded-lg shadow">
+            <table className="w-full">
+                <thead>
+                    <tr className="bg-gray-50 border-b">
+                        <th className="px-4 py-3 text-left text-sm font-semibold">Timestamp</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold">User</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold">Action</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold">Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {activityLog.filter(log => activityFilter === 'all' || log.action === activityFilter).length === 0 ? (
+                        <tr>
+                            <td colSpan="4" className="px-4 py-8 text-center text-gray-500">No activity logged yet</td>
+                        </tr>
+                    ) : (
+                        activityLog.filter(log => activityFilter === 'all' || log.action === activityFilter).map(log => {
+                            const actionColors = {
+                                'login': 'bg-blue-100 text-blue-800',
+                                'stock_update': 'bg-purple-100 text-purple-800',
+                                'expense_created': 'bg-yellow-100 text-yellow-800',
+                                'expense_approved': 'bg-blue-100 text-blue-800',
+                                'expense_paid': 'bg-green-100 text-green-800',
+                                'invoice_created': 'bg-indigo-100 text-indigo-800',
+                                'payment_recorded': 'bg-green-100 text-green-800',
+                                'waybill_created': 'bg-orange-100 text-orange-800',
+                                'waybill_received': 'bg-green-100 text-green-800',
+                                'waybill_cancelled': 'bg-red-100 text-red-800',
+                                'user_created': 'bg-teal-100 text-teal-800',
+                                'user_updated': 'bg-cyan-100 text-cyan-800',
+                                'user_deleted': 'bg-red-100 text-red-800',
+                                'product_created': 'bg-lime-100 text-lime-800',
+                                'product_updated': 'bg-amber-100 text-amber-800'
+                            };
+                            
+                            const actionLabels = {
+                                'login': 'Login',
+                                'stock_update': 'Stock Update',
+                                'expense_created': 'Expense Created',
+                                'expense_approved': 'Expense Approved',
+                                'expense_paid': 'Expense Paid',
+                                'invoice_created': 'Invoice Created',
+                                'payment_recorded': 'Payment Recorded',
+                                'waybill_created': 'Waybill Created',
+                                'waybill_received': 'Waybill Received',
+                                'waybill_cancelled': 'Waybill Cancelled',
+                                'user_created': 'User Created',
+                                'user_updated': 'User Updated',
+                                'user_deleted': 'User Deleted',
+                                'product_created': 'Product Created',
+                                'product_updated': 'Product Updated'
+                            };
+                            
+                            return (
+                                <tr key={log.id} className="border-b hover:bg-gray-50">
+                                    <td className="px-4 py-3 text-sm text-gray-600">
+                                        {new Date(log.timestamp).toLocaleString()}
+                                    </td>
+                                    <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                                        {log.userName}
+                                    </td>
+                                    <td className="px-4 py-3 text-sm">
+                                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${actionColors[log.action] || 'bg-gray-100 text-gray-800'}`}>
+                                            {actionLabels[log.action] || log.action}
+                                        </span>
+                                    </td>
+                                    <td className="px-4 py-3 text-sm text-gray-700">
+                                        {log.details}
+                                    </td>
+                                </tr>
+                            );
+                        })
+                    )}
                 </tbody>
             </table>
         </div>
