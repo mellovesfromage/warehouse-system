@@ -181,14 +181,58 @@ app.post('/api/expenses', async (req, res) => {
     id: Date.now(),
     ...req.body,
     submissionDate: new Date().toISOString(),
-    status: 'submitted',
+    status: 'pending_admin_review',
+    delegatedTo: null,
+    delegatedToName: null,
     timeline: [{
-      status: 'submitted',
+      status: 'pending_admin_review',
       timestamp: new Date().toISOString(),
       user: req.body.requestedBy,
-      note: `${req.body.requestedBy} submitted an expense request.`
+      note: `${req.body.requestedBy} submitted an expense request for admin review.`
     }]
   };
+  expenses.unshift(expense);
+  
+  logActivity(
+    req.body.requestedById,
+    req.body.requestedBy,
+    'expense_created',
+    `Created expense: ${req.body.title} (GHS ${req.body.amount})`
+  );
+  
+  // Send email to admins
+  const admins = users.filter(u => u.role === 'admin');
+  for (const admin of admins) {
+    const emailText = `
+New expense submitted by ${req.body.requestedBy} - awaiting your review
+
+Title: ${req.body.title}
+Amount: GHS ${req.body.amount}
+Category: ${req.body.category}
+Date Incurred: ${req.body.dateIncurred}
+Description: ${req.body.description || 'No description'}
+
+Please log in to the warehouse system to review this expense.
+    `;
+    
+    const emailHtml = `
+<h2>New Expense Submitted</h2>
+<p><strong>${req.body.requestedBy}</strong> has submitted a new expense awaiting your review.</p>
+<table style="border-collapse: collapse; width: 100%; margin: 20px 0;">
+  <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Title:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${req.body.title}</td></tr>
+  <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Amount:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">GHS ${req.body.amount}</td></tr>
+  <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Category:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${req.body.category}</td></tr>
+  <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Date:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${req.body.dateIncurred}</td></tr>
+  <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Description:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${req.body.description || 'No description'}</td></tr>
+</table>
+<p>Please log in to review and approve for payment.</p>
+    `;
+    
+    await sendEmail('melanie.abraham@gmail.com', `New Expense for Review: ${req.body.title}`, emailText, emailHtml);
+  }
+  
+  res.json({ success: true, expense });
+});
   expenses.unshift(expense);
   
   logActivity(
@@ -232,28 +276,32 @@ Please log in to the warehouse system to review and approve this expense.
   }
   
   res.json({ success: true, expense });
-});
 
+// Admin approves and delegates to finance person
 app.post('/api/expenses/:id/approve', async (req, res) => {
   const expenseId = parseInt(req.params.id);
   const expense = expenses.find(e => e.id === expenseId);
   
   if (expense) {
-    expense.status = 'approved';
+    expense.status = 'approved_pending_payment';
     expense.approvedBy = req.body.approvedBy;
     expense.approvalDate = new Date().toISOString();
+    expense.delegatedTo = req.body.delegatedToId;
+    expense.delegatedToName = req.body.delegatedToName;
     expense.timeline.push({
-      status: 'approved',
+      status: 'approved_pending_payment',
       timestamp: new Date().toISOString(),
       user: req.body.approvedBy,
-      note: `${req.body.approvedBy} approved this expense.`
+      note: `${req.body.approvedBy} approved this expense and delegated payment to ${req.body.delegatedToName}.`
     });
-      logActivity(
+    
+    logActivity(
       req.body.approvedById,
       req.body.approvedBy,
       'expense_approved',
-      `Approved expense: ${expense.title} (GHS ${expense.amount})`
-    );  
+      `Approved expense: ${expense.title} (GHS ${expense.amount}) - Delegated to ${req.body.delegatedToName}`
+    );
+    
     // Send email to requester
     const emailText = `
 Your expense has been approved!
@@ -261,23 +309,157 @@ Your expense has been approved!
 Title: ${expense.title}
 Amount: GHS ${expense.amount}
 Approved by: ${req.body.approvedBy}
-Approval Date: ${new Date().toLocaleDateString()}
+Delegated to: ${req.body.delegatedToName}
 
-Your expense is now ready for payment processing.
+Your expense has been approved and forwarded for payment processing.
     `;
     
     const emailHtml = `
 <h2>Expense Approved ✓</h2>
-<p>Your expense <strong>${expense.title}</strong> has been approved by ${req.body.approvedBy}.</p>
+<p>Your expense <strong>${expense.title}</strong> has been approved by ${req.body.approvedBy} and delegated to ${req.body.delegatedToName} for payment.</p>
 <table style="border-collapse: collapse; width: 100%; margin: 20px 0;">
   <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Amount:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">GHS ${expense.amount}</td></tr>
   <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Approved by:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${req.body.approvedBy}</td></tr>
 </table>
-<p>Your expense is now ready for payment processing.</p>
+<p>Your expense is now being processed for payment.</p>
     `;
     
-    // Replace with actual user email in production
     await sendEmail('melanie.abraham@gmail.com', `Expense Approved: ${expense.title}`, emailText, emailHtml);
+    
+    // Send email to delegated finance person
+    const financeEmailText = `
+You have been assigned an expense to process for payment
+
+Title: ${expense.title}
+Amount: GHS ${expense.amount}
+Requested by: ${expense.requestedBy}
+Approved by: ${req.body.approvedBy}
+
+Please log in to the warehouse system to process this payment.
+    `;
+    
+    const financeEmailHtml = `
+<h2>Expense Assigned for Payment</h2>
+<p><strong>${req.body.approvedBy}</strong> has assigned you an expense to process.</p>
+<table style="border-collapse: collapse; width: 100%; margin: 20px 0;">
+  <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Title:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${expense.title}</td></tr>
+  <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Amount:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">GHS ${expense.amount}</td></tr>
+  <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Requested by:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${expense.requestedBy}</td></tr>
+</table>
+<p>Please log in to process this payment.</p>
+    `;
+    
+    await sendEmail('melanie.abraham@gmail.com', `Expense Assigned: ${expense.title}`, financeEmailText, financeEmailHtml);
+    
+    res.json({ success: true, expense });
+  } else {
+    res.status(404).json({ success: false, message: 'Expense not found' });
+  }
+});
+
+// Admin rejects expense
+app.post('/api/expenses/:id/reject', async (req, res) => {
+  const expenseId = parseInt(req.params.id);
+  const expense = expenses.find(e => e.id === expenseId);
+  
+  if (expense) {
+    expense.status = 'rejected';
+    expense.rejectedBy = req.body.rejectedBy;
+    expense.rejectionDate = new Date().toISOString();
+    expense.rejectionReason = req.body.reason;
+    expense.timeline.push({
+      status: 'rejected',
+      timestamp: new Date().toISOString(),
+      user: req.body.rejectedBy,
+      note: `${req.body.rejectedBy} rejected this expense. Reason: ${req.body.reason}`
+    });
+    
+    logActivity(
+      req.body.rejectedById,
+      req.body.rejectedBy,
+      'expense_rejected',
+      `Rejected expense: ${expense.title} (GHS ${expense.amount})`
+    );
+    
+    // Email requester
+    const emailText = `
+Your expense has been rejected
+
+Title: ${expense.title}
+Amount: GHS ${expense.amount}
+Rejected by: ${req.body.rejectedBy}
+Reason: ${req.body.reason}
+
+You can edit and resubmit this expense.
+    `;
+    
+    const emailHtml = `
+<h2>Expense Rejected</h2>
+<p>Your expense <strong>${expense.title}</strong> has been rejected.</p>
+<p><strong>Reason:</strong> ${req.body.reason}</p>
+<p>You can edit and resubmit this expense.</p>
+    `;
+    
+    await sendEmail('melanie.abraham@gmail.com', `Expense Rejected: ${expense.title}`, emailText, emailHtml);
+    
+    res.json({ success: true, expense });
+  } else {
+    res.status(404).json({ success: false, message: 'Expense not found' });
+  }
+});
+
+// Admin revokes delegation
+app.post('/api/expenses/:id/revoke', async (req, res) => {
+  const expenseId = parseInt(req.params.id);
+  const expense = expenses.find(e => e.id === expenseId);
+  
+  if (expense) {
+    const previousDelegate = expense.delegatedToName;
+    expense.status = 'pending_admin_review';
+    expense.delegatedTo = null;
+    expense.delegatedToName = null;
+    expense.timeline.push({
+      status: 'delegation_revoked',
+      timestamp: new Date().toISOString(),
+      user: req.body.revokedBy,
+      note: `${req.body.revokedBy} revoked delegation from ${previousDelegate}.`
+    });
+    
+    logActivity(
+      req.body.revokedById,
+      req.body.revokedBy,
+      'expense_delegation_revoked',
+      `Revoked delegation for expense: ${expense.title} (was assigned to ${previousDelegate})`
+    );
+    
+    res.json({ success: true, expense });
+  } else {
+    res.status(404).json({ success: false, message: 'Expense not found' });
+  }
+});
+
+// Finance person returns to admin
+app.post('/api/expenses/:id/return', async (req, res) => {
+  const expenseId = parseInt(req.params.id);
+  const expense = expenses.find(e => e.id === expenseId);
+  
+  if (expense) {
+    expense.status = 'pending_admin_review';
+    expense.delegatedTo = null;
+    expense.delegatedToName = null;
+    expense.timeline.push({
+      status: 'returned_to_admin',
+      timestamp: new Date().toISOString(),
+      user: req.body.returnedBy,
+      note: `${req.body.returnedBy} returned this expense to admin. Reason: ${req.body.reason}`
+    });
+    
+    logActivity(
+      req.body.returnedById,
+      req.body.returnedBy,
+      'expense_returned',
+      `Returned expense to admin: ${expense.title} - ${req.body.reason}`
+    );
     
     res.json({ success: true, expense });
   } else {
@@ -301,44 +483,46 @@ app.post('/api/expenses/:id/pay', async (req, res) => {
       user: req.body.processedBy,
       note: `${req.body.processedBy} processed payment: ${req.body.paymentMethod}`
     });
+    
     logActivity(
       req.body.processedById,
       req.body.processedBy,
       'expense_paid',
       `Marked expense as paid: ${expense.title} (GHS ${expense.amount}) via ${req.body.paymentMethod}`
     );
-    // Send email to requester
-        const emailText = `
-    Your expense has been paid!
+    
+    // Email requester and admin
+    const emailText = `
+Your expense has been paid!
 
-    Title: ${expense.title}
-    Amount: GHS ${expense.amount}
-    Payment Method: ${req.body.paymentMethod}
-    Reference: ${req.body.paymentReference || 'N/A'}
-    Processed by: ${req.body.processedBy}
+Title: ${expense.title}
+Amount: GHS ${expense.amount}
+Payment Method: ${req.body.paymentMethod}
+Reference: ${req.body.paymentReference || 'N/A'}
+Processed by: ${req.body.processedBy}
 
-    Your payment has been completed.
-        `;
-        
-        const emailHtml = `
-    <h2>Expense Paid ✓</h2>
-    <p>Your expense <strong>${expense.title}</strong> has been paid.</p>
-    <table style="border-collapse: collapse; width: 100%; margin: 20px 0;">
-    <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Amount:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">GHS ${expense.amount}</td></tr>
-    <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Payment Method:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${req.body.paymentMethod}</td></tr>
-    <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Reference:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${req.body.paymentReference || 'N/A'}</td></tr>
-    <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Processed by:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${req.body.processedBy}</td></tr>
-    </table>
-    <p>Your payment has been completed.</p>
-        `;
-        
-        await sendEmail('melanie.abraham@gmail.com', `Expense Paid: ${expense.title}`, emailText, emailHtml);
-
-        res.json({ success: true, expense });
-    } else {
-        res.status(404).json({ success: false, message: 'Expense not found' });
-    }
-    });
+Your payment has been completed.
+    `;
+    
+    const emailHtml = `
+<h2>Expense Paid ✓</h2>
+<p>Your expense <strong>${expense.title}</strong> has been paid.</p>
+<table style="border-collapse: collapse; width: 100%; margin: 20px 0;">
+  <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Amount:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">GHS ${expense.amount}</td></tr>
+  <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Payment Method:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${req.body.paymentMethod}</td></tr>
+  <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Reference:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${req.body.paymentReference || 'N/A'}</td></tr>
+  <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Processed by:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${req.body.processedBy}</td></tr>
+</table>
+<p>Your payment has been completed.</p>
+    `;
+    
+    await sendEmail('melanie.abraham@gmail.com', `Expense Paid: ${expense.title}`, emailText, emailHtml);
+    
+    res.json({ success: true, expense });
+  } else {
+    res.status(404).json({ success: false, message: 'Expense not found' });
+  }
+});
     let invoices = [];
     let waybills = [];
     let customers = [
