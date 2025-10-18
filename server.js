@@ -1,5 +1,5 @@
-const express = require('express');
 const session = require('express-session');
+const express = requires('express');
 const cors = require('cors');
 const path = require('path');
 require('dotenv').config();
@@ -233,49 +233,6 @@ Please log in to the warehouse system to review this expense.
   
   res.json({ success: true, expense });
 });
-  expenses.unshift(expense);
-  
-  logActivity(
-    req.body.requestedById,
-    req.body.requestedBy,
-    'expense_created',
-    `Created expense: ${req.body.title} (GHS ${req.body.amount})`
-  );
-  
-  // Send email to finance admins
-  const financeAdmins = users.filter(u => u.financeAdmin);
-  for (const admin of financeAdmins) {
-    const emailText = `
-New expense submitted by ${req.body.requestedBy}
-
-Title: ${req.body.title}
-Amount: GHS ${req.body.amount}
-Category: ${req.body.category}
-Date Incurred: ${req.body.dateIncurred}
-Description: ${req.body.description || 'No description'}
-
-Please log in to the warehouse system to review and approve this expense.
-    `;
-    
-    const emailHtml = `
-<h2>New Expense Submitted</h2>
-<p><strong>${req.body.requestedBy}</strong> has submitted a new expense for approval.</p>
-<table style="border-collapse: collapse; width: 100%; margin: 20px 0;">
-  <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Title:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${req.body.title}</td></tr>
-  <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Amount:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">GHS ${req.body.amount}</td></tr>
-  <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Category:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${req.body.category}</td></tr>
-  <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Date:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${req.body.dateIncurred}</td></tr>
-  <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Description:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${req.body.description || 'No description'}</td></tr>
-</table>
-<p>Please log in to review and approve this expense.</p>
-    `;
-    
-    // In production, you'd use admin.email here
-    // For now, replace with your test email
-    await sendEmail('melanie.abraham@gmail.com', `New Expense: ${req.body.title}`, emailText, emailHtml);
-  }
-  
-  res.json({ success: true, expense });
 
 // Admin approves and delegates to finance person
 app.post('/api/expenses/:id/approve', async (req, res) => {
