@@ -1,6 +1,7 @@
 {
   "name": "warehouse-system",
   "version": "1.0.0",
+  "type": "commonjs",
   "description": "Multi-warehouse inventory management system",
   "main": "server.js",
   "scripts": {
