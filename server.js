@@ -1,5 +1,5 @@
 const session = require('express-session');
-const express = requires('express');
+const express = require('express');
 const cors = require('cors');
 const path = require('path');
 require('dotenv').config();
