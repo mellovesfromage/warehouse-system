@@ -166,7 +166,7 @@
                 const waybillsData = await fetch('/api/waybills').then(r => r.json());
                 const productsData = await fetch('/api/products').then(r => r.json());
                 const activityLogData = await fetch('/api/activity-log').then(r => r.json());
-                const warehousePermissionsData = await fetch('/api/warehouse-permissions'). then(r => r,json());
+                const warehousePermissionsData = await fetch('/api/warehouse-permissions').then(r => r.json());
                 setStock(stockData);
                 setMovements(movementsData);
                 setExpenses(expensesData);
